@@ -112,13 +112,21 @@ export function PrivateWorkspaceDirectoryPicker({
         : valueRef.current.filter((candidate) => candidate !== directory),
     );
   const treePathByModelPath = useMemo<Map<string, string>>(
-    () =>
-      new Map(
-        directories.map((directory) => {
-          const modelPath = directory.replace(/^\/+/, "");
-          return [`${modelPath.replace(/\/$/u, "")}/`, directory] as const;
-        }),
-      ),
+    () => {
+      const result = new Map<string, string>();
+      const normalizedDirectories = directories.map((directory) => ({
+        directory,
+        modelPath: directory.replace(/^\/+|\/+$/gu, ""),
+      }));
+      for (const { directory, modelPath } of normalizedDirectories) {
+        const hasChildren = normalizedDirectories.some(
+          (candidate) =>
+            candidate.modelPath !== modelPath && candidate.modelPath.startsWith(`${modelPath}/`),
+        );
+        result.set(hasChildren ? `${modelPath}/` : modelPath, directory);
+      }
+      return result;
+    },
     [directories.join("\0")],
   );
   const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
@@ -127,13 +135,15 @@ export function PrivateWorkspaceDirectoryPicker({
   const { model } = useFileTree({
     density: "compact",
     icons: PRIVATE_WORKSPACE_TREE_ICONS,
-    initialExpansion: "open",
+    // Populate the first tree open, then let resetPaths preserve explicit collapses.
+    // With an "open" base option, Pierre treats an empty initialExpandedPaths list as "open".
+    initialExpansion: "closed",
     onSelectionChange: (selectedPaths) => {
       const selected = selectedPaths.at(-1);
       const directory =
         selected === undefined
           ? undefined
-          : treePathByModelPath.get(selected.endsWith("/") ? selected : `${selected}/`);
+          : treePathByModelPath.get(selected);
       if (directory !== undefined) toggle(directory, !valueRef.current.includes(directory));
       if (selected !== undefined) {
         queueMicrotask(() => treeModelRef.current?.getItem(selected)?.deselect());
@@ -141,7 +151,6 @@ export function PrivateWorkspaceDirectoryPicker({
     },
     paths: [],
     renderRowDecoration: ({ row }) => {
-      if (row.kind !== "directory") return null;
       const directory = treePathByModelPath.get(row.path);
       if (directory === undefined) return null;
       return {
@@ -157,8 +166,18 @@ export function PrivateWorkspaceDirectoryPicker({
   treeModelRef.current = model;
   useEffect(() => {
     if (previousTreePaths.current === treePaths) return;
+    const previousPaths = previousTreePaths.current;
+    const initialExpandedPaths =
+      previousPaths === null
+        ? treePaths
+        : treePaths.filter((treePath) => {
+            if (!treePath.endsWith("/")) return false;
+            const item = model.getItem(treePath);
+            if (item?.isDirectory() && "isExpanded" in item) return item.isExpanded();
+            return !previousPaths.includes(treePath);
+          });
     previousTreePaths.current = treePaths;
-    model.resetPaths(treePaths, { initialExpandedPaths: treePaths });
+    model.resetPaths(treePaths, { initialExpandedPaths });
   }, [model, treePaths]);
   useEffect(() => {
     model.setComposition(model.getComposition());
