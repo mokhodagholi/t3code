@@ -49,17 +49,25 @@ export function PrivateWorkspaceDirectoryPicker({
         ? [...new Set([...value, directory])]
         : value.filter((candidate) => candidate !== directory),
     );
-  const treePaths = useMemo(
-    () => directories.map((directory) => (directory.endsWith("/") ? directory : `${directory}/`)),
+  const treePathByModelPath = useMemo(
+    () =>
+      new Map(
+        directories.map((directory) => {
+          const modelPath = directory.replace(/^\/+/, "");
+          return [`${modelPath.replace(/\/$/u, "")}/`, directory] as const;
+        }),
+      ),
     [directories.join("\0")],
   );
+  const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
   const { model } = useFileTree({
     density: "compact",
     initialExpansion: "open",
     onSelectionChange: (selectedPaths) => {
-      const selected = selectedPaths.at(-1)?.replace(/\/$/u, "");
-      if (selected !== undefined && directories.includes(selected)) toggle(selected, true);
+      const selected = selectedPaths.at(-1);
+      const directory = selected === undefined ? undefined : treePathByModelPath.get(selected);
+      if (directory !== undefined) toggle(directory, true);
     },
     paths: [],
     search: false,
