@@ -116,6 +116,8 @@ vi.mock("../state/queries", async (original) => ({
 vi.mock("../state/session", async (original) => ({
   ...(await original<typeof import("../state/session")>()),
   useEnvironmentScope: (_environmentId: unknown, scope: string) => scope !== scopes.denied,
+  useEnvironmentsWithScope: (environments: { environmentId: string }[]) =>
+    new Set(environments.map((environment) => environment.environmentId)),
   readEnvironmentScope: () => true,
 }));
 vi.mock("../state/filesystem", async (original) => ({

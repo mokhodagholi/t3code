@@ -277,7 +277,11 @@ function clearDeletedThreadPanelState(ref: ScopedThreadRef) {
 export function canTurnThreadIntoProject(threadRef: ScopedThreadRef): boolean {
   const thread = readThreadShell(threadRef);
   const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
-  if (!thread?.worktreePath || config?.environment.capabilities.threadProjectFromScratch !== true) {
+  if (
+    !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope, true) ||
+    !thread?.worktreePath ||
+    config?.environment.capabilities.threadProjectFromScratch !== true
+  ) {
     return false;
   }
   const project = readProject({
@@ -287,8 +291,8 @@ export function canTurnThreadIntoProject(threadRef: ScopedThreadRef): boolean {
   return project !== null && isScratchProject(project, config.scratchWorkspaceRoot);
 }
 
-function threadOperationFailure(target: ScopedThreadRef) {
-  return readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
+function threadOperationFailure(target: ScopedThreadRef, ownerOnly = false) {
+  return readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope, ownerOnly)
     ? null
     : AsyncResult.failure(
         Cause.fail(
@@ -1061,7 +1065,8 @@ export function useThreadActions() {
     reorderActiveThread,
     markThreadUnread,
     setThreadAutoSettle,
-    turnThreadIntoProject: (target: ScopedThreadRef) =>
+    turnThreadIntoProject: async (target: ScopedThreadRef) =>
+      threadOperationFailure(target, true) ??
       createProjectFromThread({
         environmentId: target.environmentId,
         input: { threadId: target.threadId },

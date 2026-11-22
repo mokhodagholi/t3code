@@ -1,3 +1,5 @@
+import { AuthProvidersManageScope } from "@t3tools/contracts";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import { T, useGT, useMessages } from "gt-react";
@@ -22,11 +24,14 @@ export function ProviderWizardAuthenticationStep({
   readonly onFinish: () => void;
 }) {
   const gt = useGT();
+  const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const providers =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
   const provider = providers.find((candidate) => candidate.instanceId === instanceId);
   const query = useEnvironmentQuery(
-    serverEnvironment.providerAuthState({ environmentId, input: { instanceId } }),
+    canManageProviders
+      ? serverEnvironment.providerAuthState({ environmentId, input: { instanceId } })
+      : null,
     useMessages(),
   );
   const auth = query.data;
@@ -35,7 +40,8 @@ export function ProviderWizardAuthenticationStep({
   const signedIn =
     provider?.auth.status === "authenticated" ||
     (provider?.auth.status === "unknown" && auth?.phase === "succeeded");
-  const isDiscovering = !signedIn && !query.error && auth?.methods === undefined;
+  const isDiscovering =
+    canManageProviders && !signedIn && !query.error && auth?.methods === undefined;
   const canAuthenticate = (auth?.methods?.length ?? 0) > 0;
 
   return (
@@ -55,7 +61,7 @@ export function ProviderWizardAuthenticationStep({
                   canAuthenticate,
                 },
               }}
-              readOnly={false}
+              readOnly={!canManageProviders}
             />
           ) : (
             <SettingsRow

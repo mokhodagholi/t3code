@@ -119,6 +119,7 @@ export function useProjectPin() {
   const operableEnvironmentIds = useEnvironmentsWithScope(
     environments,
     AuthOrchestrationOperateScope,
+    true,
   );
   type PinnableGroup = {
     readonly memberProjects: ReadonlyArray<ProjectGroupMember>;
@@ -147,7 +148,7 @@ export function checkProjectAccess(
   failureTitle: string,
 ): AtomCommandResult<void, unknown> | null {
   const denied = members.find(
-    (member) => !readEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope),
+    (member) => !readEnvironmentScope(member.environmentId, AuthOrchestrationOperateScope, true),
   );
   return denied
     ? failWith(

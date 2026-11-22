@@ -116,7 +116,12 @@ function InstanceSessionManagement(
   },
 ) {
   const gt = useGT();
-  const canOperate = useEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope);
+  const canOperate = useEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope, true);
+  const canReadSessions = useEnvironmentScope(
+    props.environmentId,
+    AuthOrchestrationReadScope,
+    true,
+  );
   const canRead = useEnvironmentScope(props.environmentId, AuthOrchestrationReadScope);
   const { projectId } = props;
   const projectGeneration = useRef(0);
@@ -173,7 +178,7 @@ function InstanceSessionManagement(
     reportFailure: false,
   });
   const logout = useAtomCommand(serverEnvironment.logoutAcpRegistry, { reportFailure: false });
-  const canList = props.provider.nativeSessions?.canList === true;
+  const canList = canReadSessions && props.provider.nativeSessions?.canList === true;
   const canImport =
     props.provider.nativeSessions?.canLoad === true ||
     props.provider.nativeSessions?.canResume === true;
@@ -192,7 +197,12 @@ function InstanceSessionManagement(
 
   const loadSessions = async (cursor?: string) => {
     const generation = projectGeneration.current;
-    if (projectId === null || loading) return;
+    if (
+      projectId === null ||
+      loading ||
+      !readEnvironmentScope(props.environmentId, AuthOrchestrationReadScope, true)
+    )
+      return;
     const deletedSessionIds = new Set<string>();
     deletionsDuringList.current = deletedSessionIds;
     setLoading(true);
@@ -224,7 +234,7 @@ function InstanceSessionManagement(
   const importNativeSession = async (session: AcpRegistrySession) => {
     const generation = projectGeneration.current;
     if (
-      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope) ||
+      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope, true) ||
       projectId === null ||
       importingSessionId !== null
     )
@@ -274,7 +284,7 @@ function InstanceSessionManagement(
     if (
       generation !== projectGeneration.current ||
       !confirmed ||
-      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope)
+      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope, true)
     )
       return;
     setDeletingSessionId(session.sessionId);

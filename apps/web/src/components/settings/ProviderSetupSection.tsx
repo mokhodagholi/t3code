@@ -1,3 +1,5 @@
+import { AuthProvidersManageScope } from "@t3tools/contracts";
+import { useEnvironmentScope } from "../../state/session";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import {
@@ -113,8 +115,12 @@ function ProviderSetupActions({
   readonly authMethod: AntigravityAuthMethod;
 }) {
   const gt = useGT();
+  const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const target = { environmentId, input: { instanceId } };
-  const authQuery = useEnvironmentQuery(serverEnvironment.providerAuthState(target), useMessages());
+  const authQuery = useEnvironmentQuery(
+    canManageProviders ? serverEnvironment.providerAuthState(target) : null,
+    useMessages(),
+  );
   const installQuery = useEnvironmentQuery(
     serverEnvironment.providerInstallState(target),
     useMessages(),
@@ -141,7 +147,7 @@ function ProviderSetupActions({
   const installed =
     provider.installed || (!usesCustomBinary && installation?.installedVersion != null);
   const queryError = authQuery.error ?? installQuery.error;
-  const actionsDisabled = pendingLabel !== null || queryError !== null;
+  const actionsDisabled = !canManageProviders || pendingLabel !== null || queryError !== null;
   const installationStatusMessage =
     installation === null
       ? gt("Checking the Antigravity runtime.")
@@ -174,7 +180,7 @@ function ProviderSetupActions({
     label: string,
     request: () => Promise<AtomCommandResult<A, E>>,
   ): Promise<boolean> {
-    if (pendingRef.current) return false;
+    if (pendingRef.current || !canManageProviders) return false;
     pendingRef.current = true;
     setPendingLabel(label);
     setError(null);

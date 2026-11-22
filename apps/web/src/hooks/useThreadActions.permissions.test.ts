@@ -26,6 +26,7 @@ function deferred<T>() {
 const state = vi.hoisted(() => ({
   serverConfig: { shellThreadFamilies: false },
   familyLookupFails: false,
+  privateUser: false,
   scopes: new Map<string, Set<string>>(),
   threads: [] as {
     environmentId: EnvironmentId;
@@ -68,8 +69,8 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("../state/session", () => ({
   environmentSession: { sessionStateAtom: "session" },
-  readEnvironmentScope: (environmentId: string, scope: string) =>
-    state.scopes.get(environmentId)?.has(scope) === true,
+  readEnvironmentScope: (environmentId: string, scope: string, ownerOnly = false) =>
+    (!ownerOnly || !state.privateUser) && state.scopes.get(environmentId)?.has(scope) === true,
 }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand:
@@ -261,6 +262,7 @@ const operations = [
 ] as const;
 
 beforeEach(() => {
+  state.privateUser = false;
   state.serverConfig.shellThreadFamilies = false;
   state.familyLookupFails = false;
   state.familyThreads = [];
@@ -496,4 +498,12 @@ describe("thread action permissions", () => {
       consoleError.mockRestore();
     }
   });
+});
+
+it("does not send a project promotion request from a private account", async () => {
+  state.privateUser = true;
+  state.scopes.set(secondary, new Set([AuthOrchestrationOperateScope]));
+  const result = await useThreadActions().turnThreadIntoProject(target);
+  expect(result._tag).toBe("Failure");
+  expect(state.requests).toEqual([]);
 });

@@ -5,10 +5,12 @@ import {
   type AuthSessionState,
   AuthRelayConfigureScope,
   type EnvironmentId,
-  sessionGrantsScope,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
+
+import { sessionHasScope } from "./session.logic";
+export { sessionHasScope } from "./session.logic";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -25,13 +27,14 @@ const EMPTY_SESSION_STATE_ATOM = Atom.make(AsyncResult.initial<AuthSessionState>
 export function useEnvironmentScope(
   environmentId: EnvironmentId | null,
   scope: AuthEnvironmentScope,
+  ownerOnly = false,
 ): boolean {
   // Select the grant: every revalidation emits a new result, and most consumers are list rows.
   return useAtomValue(
     environmentId === null
       ? EMPTY_SESSION_STATE_ATOM
       : environmentSession.sessionStateAtom(environmentId),
-    (result) => sessionHasScope(result, scope),
+    (result) => sessionHasScope(result, scope, ownerOnly),
   );
 }
 
@@ -49,31 +52,27 @@ export function readEnvironmentCanConfigureRelay(environmentId: EnvironmentId): 
   return sessionHasScope(result, AuthRelayConfigureScope);
 }
 
-export function sessionHasScope(
-  result: AsyncResult.AsyncResult<AuthSessionState, unknown>,
-  scope: AuthEnvironmentScope,
-): boolean {
-  const session = AsyncResult.getOrElse(result, () => null);
-  return result._tag !== "Failure" && session !== null && sessionGrantsScope(session, scope);
-}
-
 const environmentsWithScopeAtom = Atom.family((key: string) => {
-  const [scope, idsKey = ""] = key.split(/\n(.*)/s) as [AuthEnvironmentScope, string?];
+  const [scopeAndOwner, idsKey = ""] = key.split(/\n(.*)/s);
+  const [scope, ownerOnly] = scopeAndOwner!.split(":owner=") as [AuthEnvironmentScope, string];
   const ids = idsKey === "" ? [] : (idsKey.split("\n") as EnvironmentId[]);
   const statesAtom = environmentSessionStatesAtom(idsKey);
   return Atom.make((get) => {
     const states = get(statesAtom);
-    return new Set(ids.filter((_, index) => sessionHasScope(states[index]!, scope)));
+    return new Set(
+      ids.filter((_, index) => sessionHasScope(states[index]!, scope, ownerOnly === "true")),
+    );
   }).pipe(Atom.withLabel(`web-environments-with-scope:${key}`));
 });
 
 export function useEnvironmentsWithScope(
   environments: ReadonlyArray<{ readonly environmentId: EnvironmentId }>,
   scope: AuthEnvironmentScope,
+  ownerOnly = false,
 ): ReadonlySet<EnvironmentId> {
   return useAtomValue(
     environmentsWithScopeAtom(
-      `${scope}\n${environmentIdsKey(environments.map(({ environmentId }) => environmentId))}`,
+      `${scope}:owner=${ownerOnly}\n${environmentIdsKey(environments.map(({ environmentId }) => environmentId))}`,
     ),
   );
 }
@@ -81,10 +80,12 @@ export function useEnvironmentsWithScope(
 export function readEnvironmentScope(
   environmentId: EnvironmentId,
   scope: AuthEnvironmentScope,
+  ownerOnly = false,
 ): boolean {
   return sessionHasScope(
     appAtomRegistry.get(environmentSession.sessionStateAtom(environmentId)),
     scope,
+    ownerOnly,
   );
 }
 

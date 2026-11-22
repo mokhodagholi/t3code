@@ -7,6 +7,8 @@ import { resolvePastedPath } from "@t3tools/shared/path";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
+import { AuthOrchestrationReadScope } from "@t3tools/contracts";
+import { useEnvironmentsWithScope } from "../../state/session";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -408,8 +410,15 @@ function CleanupSection() {
   const { connectedEnvironments } = useSettingsScope();
   const [pending, setPending] = useState(false);
   const run = useAtomCommand(serverEnvironment.runStorageCleanup);
+  const readableIds = useEnvironmentsWithScope(
+    connectedEnvironments,
+    AuthOrchestrationReadScope,
+    true,
+  );
   const supported = connectedEnvironments.filter(
-    (environment) => environment.serverConfig?.environment.capabilities.storageCleanupRun === true,
+    (environment) =>
+      readableIds.has(environment.environmentId) &&
+      environment.serverConfig?.environment.capabilities.storageCleanupRun === true,
   );
   const supportedIds = supported.map(({ environmentId }) => environmentId);
   const reports = useAtomValue(storageCleanupReportsAtom(environmentIdsKey(supportedIds)));

@@ -124,7 +124,11 @@ import { projectEnvironment } from "../state/projects";
 import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
-import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
+import {
+  readEnvironmentScope,
+  useEnvironmentScope,
+  useEnvironmentsWithScope,
+} from "~/state/session";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useOrchestrationCommand } from "../state/use-orchestration-command";
@@ -616,9 +620,18 @@ function OpenCommandPaletteDialog(props: {
       : null;
   };
 
+  const projectManagementIds = useEnvironmentsWithScope(
+    environments,
+    AuthOrchestrationOperateScope,
+    true,
+  );
   const addProjectEnvironmentOptions = (() => {
     const options = environments
-      .filter((environment) => canCreateProjectInEnvironment(environment.connection.phase))
+      .filter(
+        (environment) =>
+          projectManagementIds.has(environment.environmentId) &&
+          canCreateProjectInEnvironment(environment.connection.phase),
+      )
       .map((environment): AddProjectEnvironmentOption => {
         const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
         return {
@@ -662,7 +675,11 @@ function OpenCommandPaletteDialog(props: {
         : false;
     }) ?? null;
   const browseEnvironmentId = addProjectEnvironmentId ?? defaultAddProjectEnvironmentId;
-  const canCreateProject = useEnvironmentScope(browseEnvironmentId, AuthOrchestrationOperateScope);
+  const canCreateProject = useEnvironmentScope(
+    browseEnvironmentId,
+    AuthOrchestrationOperateScope,
+    true,
+  );
   const browseEnvironment =
     environments.find((environment) => environment.environmentId === browseEnvironmentId) ?? null;
   const browseEnvironmentIsDesktopLocal =
@@ -1654,7 +1671,8 @@ function OpenCommandPaletteDialog(props: {
       openAddProjectFlow();
     },
   };
-  actionItems.push(addProjectAction);
+  if (projectManagementIds.size > 0 || environments.length === 0)
+    actionItems.push(addProjectAction);
 
   if (wslAddProjectEnvironmentOption) {
     actionItems.push({
@@ -2056,7 +2074,7 @@ function OpenCommandPaletteDialog(props: {
       return;
     }
 
-    if (!readEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope)) {
+    if (!readEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope, true)) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
@@ -2278,7 +2296,7 @@ function OpenCommandPaletteDialog(props: {
     const rawDestination = (destinationPathInput ?? query).trim();
     if (
       !readEnvironmentScope(addProjectCloneFlow.environmentId, AuthSourceControlWriteScope) ||
-      !readEnvironmentScope(addProjectCloneFlow.environmentId, AuthOrchestrationOperateScope)
+      !readEnvironmentScope(addProjectCloneFlow.environmentId, AuthOrchestrationOperateScope, true)
     ) {
       toastManager.add(
         stackedThreadToast({
@@ -2594,6 +2612,7 @@ function OpenCommandPaletteDialog(props: {
   const canCreateClonedProject = useEnvironmentScope(
     addProjectCloneFlow?.environmentId ?? null,
     AuthOrchestrationOperateScope,
+    true,
   );
   const canCloneProject = canWriteSourceControl && canCreateClonedProject;
   const isCloneDestinationStep = addProjectCloneFlow?.step === "confirm";

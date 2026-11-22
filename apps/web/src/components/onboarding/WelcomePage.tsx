@@ -1495,7 +1495,7 @@ function useProjectImport({
     importedThreadCount?: number,
   ) => Promise<boolean>;
 }) {
-  const writableEnvironments = useEnvironmentsWithScope(scans, AuthOrchestrationOperateScope);
+  const writableEnvironments = useEnvironmentsWithScope(scans, AuthOrchestrationOperateScope, true);
   const gt = useGT();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const importThreads = useAtomCommand(agentSessionImport, { reportFailure: false });
@@ -1600,7 +1600,7 @@ function useProjectImport({
     if (isImporting) return;
     const hasAccess = () =>
       selection.every((candidate) =>
-        readEnvironmentScope(candidate.environmentId, AuthOrchestrationOperateScope),
+        readEnvironmentScope(candidate.environmentId, AuthOrchestrationOperateScope, true),
       );
     // The permission message shows from the session's scopes.
     const stopForDeniedAccess = () => setIsImporting(false);

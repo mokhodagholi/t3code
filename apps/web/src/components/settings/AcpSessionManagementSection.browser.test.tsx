@@ -22,13 +22,15 @@ const commands = vi.hoisted(() => ({
   disableProvider: vi.fn(),
   logout: vi.fn(),
 }));
-const grants = vi.hoisted(() => ({ scopes: new Set<string>() }));
+const grants = vi.hoisted(() => ({ scopes: new Set<string>(), privateUser: false }));
 const dialogs = vi.hoisted(() => ({ confirm: vi.fn() }));
 
 vi.mock(import("~/state/session"), async (original) => ({
   ...(await original()),
-  useEnvironmentScope: ((_id: unknown, scope: string) => grants.scopes.has(scope)) as never,
-  readEnvironmentScope: ((_id: unknown, scope: string) => grants.scopes.has(scope)) as never,
+  useEnvironmentScope: ((_id: unknown, scope: string, ownerOnly = false) =>
+    (!ownerOnly || !grants.privateUser) && grants.scopes.has(scope)) as never,
+  readEnvironmentScope: ((_id: unknown, scope: string, ownerOnly = false) =>
+    (!ownerOnly || !grants.privateUser) && grants.scopes.has(scope)) as never,
 }));
 vi.mock(import("../../state/use-atom-command"), async (original) => {
   const { serverEnvironment } = await import("../../state/server");
@@ -117,6 +119,7 @@ async function renderSection(options: { canList?: boolean; projects?: Projects }
 }
 
 function setup() {
+  grants.privateUser = false;
   grants.scopes = new Set(["orchestration:read", "orchestration:operate", "providers:manage"]);
   commands.list.mockReset().mockResolvedValue({
     _tag: "Success",
@@ -480,4 +483,16 @@ it("keeps logout pending across project replacement and clears replacement sessi
   await act(async () => finish());
   await expect.element(screen.getByText(session.title)).not.toBeInTheDocument();
   await expect.element(screen.getByRole("button", { name: "Log out", exact: true })).toBeEnabled();
+});
+
+it("hides shared native sessions from private accounts with chat read and operate access", async () => {
+  setup();
+  grants.privateUser = true;
+  await using screen = await renderSection();
+  await expect
+    .element(screen.getByRole("button", { name: "List sessions" }))
+    .not.toBeInTheDocument();
+  expect(commands.list).not.toHaveBeenCalled();
+  expect(commands.import).not.toHaveBeenCalled();
+  expect(commands.delete).not.toHaveBeenCalled();
 });

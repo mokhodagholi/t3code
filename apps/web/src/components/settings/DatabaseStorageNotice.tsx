@@ -1,3 +1,5 @@
+import { AuthOrchestrationReadScope } from "@t3tools/contracts";
+import { useEnvironmentsWithScope } from "../../state/session";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
@@ -47,7 +49,10 @@ export function DatabaseStorageNotice({
   environments: ReadonlyArray<{ readonly environmentId: EnvironmentId; readonly label: string }>;
 }) {
   const gt = useGT();
-  const environmentIds = environments.map((environment) => environment.environmentId);
+  const readableIds = useEnvironmentsWithScope(environments, AuthOrchestrationReadScope, true);
+  const environmentIds = environments
+    .filter((environment) => readableIds.has(environment.environmentId))
+    .map((environment) => environment.environmentId);
   const recommendations = useAtomValue(
     serverEnvironment.databaseCompactionRecommendations(JSON.stringify(environmentIds)),
   );

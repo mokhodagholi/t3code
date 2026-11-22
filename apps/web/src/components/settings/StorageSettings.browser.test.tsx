@@ -11,8 +11,18 @@ const state = vi.hoisted(() => ({
   settings: {} as typeof DEFAULT_SERVER_SETTINGS,
   targets: [] as Array<{ environmentId: string; settings: typeof DEFAULT_SERVER_SETTINGS }>,
   run: vi.fn(),
+  privateUser: false,
+  queryReport: vi.fn(),
   update: vi.fn(),
   report: null as StorageCleanupReport | null,
+}));
+
+vi.mock(import("../../state/session"), async (original) => ({
+  ...(await original()),
+  useEnvironmentsWithScope: ((environments: { environmentId: string }[]) =>
+    new Set(
+      state.privateUser ? [] : environments.map((environment) => environment.environmentId),
+    )) as never,
 }));
 
 vi.mock(import("../../state/server"), async (original) => {
@@ -24,7 +34,10 @@ vi.mock(import("../../state/server"), async (original) => {
     ...actual,
     serverEnvironment: {
       ...actual.serverEnvironment,
-      storageCleanupReport: (() => report) as never,
+      storageCleanupReport: ((target: unknown) => {
+        state.queryReport(target);
+        return report;
+      }) as never,
       runStorageCleanup: {
         ...actual.serverEnvironment.runStorageCleanup,
         permissionAtom: () => allowed,
@@ -97,6 +110,8 @@ vi.mock(import("../ui/toast"), async (original) => {
 import { StorageCleanupSections } from "./StorageSettings";
 
 function setup() {
+  state.privateUser = false;
+  state.queryReport.mockReset();
   state.settings = {
     ...DEFAULT_SERVER_SETTINGS,
     storageCleanup: {
@@ -358,4 +373,13 @@ it("settles mixed retention statuses independently across selected machines", as
   await screen.rerender(panel());
   await advance(300);
   await expect.element(screen.getByTestId("logs-retention-status")).not.toBeInTheDocument();
+});
+
+it("does not request shared cleanup reports for private accounts", async () => {
+  setup();
+  state.privateUser = true;
+  await using screen = await render(panel());
+  expect(state.queryReport).not.toHaveBeenCalled();
+  expect(state.run).not.toHaveBeenCalled();
+  await expect.element(screen.getByRole("button", { name: "Delete now" })).not.toBeInTheDocument();
 });

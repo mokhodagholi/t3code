@@ -1,3 +1,5 @@
+import { AuthProvidersManageScope } from "@t3tools/contracts";
+import { useEnvironmentScope } from "../../state/session";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import {
@@ -45,8 +47,12 @@ export function ProviderAuthenticationSection({
   readonly readOnly: boolean;
 }) {
   const gt = useGT();
+  const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const target = { environmentId, input: { instanceId } };
-  const query = useEnvironmentQuery(serverEnvironment.providerAuthState(target), useMessages());
+  const query = useEnvironmentQuery(
+    canManageProviders ? serverEnvironment.providerAuthState(target) : null,
+    useMessages(),
+  );
   const commands = { reportFailure: false, reportDefect: false };
   const start = useAtomCommand(serverEnvironment.startProviderAuth, commands);
   const respond = useAtomCommand(serverEnvironment.respondProviderAuth, commands);
@@ -68,6 +74,7 @@ export function ProviderAuthenticationSection({
     provider.auth.status === "authenticated" ||
     (provider.auth.status === "unknown" && auth?.phase === "succeeded");
   const isDiscovering =
+    canManageProviders &&
     provider.driver === "acpRegistry" &&
     !active &&
     !signedIn &&
@@ -103,7 +110,8 @@ export function ProviderAuthenticationSection({
             ? gt("Connect on {environment} to load models.", { environment: environmentLabel })
             : gt("Sign in on {environment}.", { environment: environmentLabel });
   const statusMessage = auth?.phase === "failed" ? auth.message : null;
-  const disabled = readOnly || pending || query.error !== null || isDiscovering;
+  const disabled =
+    !canManageProviders || readOnly || pending || query.error !== null || isDiscovering;
   const draftId = `${auth?.flowId ?? ""}:${interaction?.id ?? ""}`;
   const values = draft.id === draftId ? draft.values : {};
   const url =

@@ -285,8 +285,12 @@ function ManagedCodexSetup({
   readonly allowExistingCli?: boolean;
 }) {
   const gt = useGT();
+  const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const target = { environmentId, input: { instanceId } };
-  const authQuery = useEnvironmentQuery(serverEnvironment.providerAuthState(target), useMessages());
+  const authQuery = useEnvironmentQuery(
+    canManageProviders ? serverEnvironment.providerAuthState(target) : null,
+    useMessages(),
+  );
   const installQuery = useEnvironmentQuery(
     serverEnvironment.providerInstallState(target),
     useMessages(),
@@ -296,7 +300,7 @@ function ManagedCodexSetup({
     input: ChatGptHandoffInput;
   } | null>(null);
   const handoffQuery = useEnvironmentQuery(
-    handoff ? serverEnvironment.chatGptHandoffState(handoff) : null,
+    canManageProviders && handoff ? serverEnvironment.chatGptHandoffState(handoff) : null,
     useMessages(),
   );
   const auth = handoffQuery.data?.phase === "auth" ? handoffQuery.data.state : authQuery.data;
@@ -396,7 +400,12 @@ function ManagedCodexSetup({
     installation?.phase === "verifying";
   const authActive = startingAutomatically || authInProgress || (pending && !installActive);
   const unavailable =
-    readOnly || !enabled || pending || authQuery.error !== null || installQuery.error !== null;
+    !canManageProviders ||
+    readOnly ||
+    !enabled ||
+    pending ||
+    authQuery.error !== null ||
+    installQuery.error !== null;
   const busy = pending || authInProgress || installActive;
 
   const run = async <A, E>(

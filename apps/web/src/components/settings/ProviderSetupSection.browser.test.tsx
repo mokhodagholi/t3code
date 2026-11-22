@@ -27,6 +27,10 @@ const setup = vi.hoisted(() => ({
   confirm: vi.fn(),
 }));
 
+vi.mock(import("../../state/session"), async (original) => ({
+  ...(await original()),
+  useEnvironmentScope: () => true,
+}));
 vi.mock(import("../../state/server"), async (original) => {
   const actual = await original();
   return {

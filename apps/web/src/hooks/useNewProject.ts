@@ -7,10 +7,11 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, type EnvironmentId } from "@t3tools/contracts";
 import { msg } from "gt-react";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
+import { readEnvironmentScope } from "~/state/session";
 import { m } from "~/i18n/messages";
 import { waitForProject } from "~/state/entities";
 import { projectEnvironment } from "~/state/projects";
@@ -78,6 +79,8 @@ export function useNewProject() {
     readonly name: string;
     readonly publishTo: NewProjectPublishTarget | null;
   }): Promise<boolean> => {
+    if (!readEnvironmentScope(input.environmentId, AuthOrchestrationOperateScope, true))
+      return false;
     const result = await createNew({
       environmentId: input.environmentId,
       input: { name: input.name },
