@@ -5,12 +5,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjects } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { useEnvironmentScope } from "../../state/session";
 import { useDebouncedValue } from "../../state/queries";
 import { useTheme } from "../../hooks/useTheme";
+import { T3_PIERRE_ICONS } from "../../pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "../../pierre-tree-theme";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+
+const PRIVATE_WORKSPACE_TREE_ICONS = {
+  ...T3_PIERRE_ICONS,
+  spriteSheet: T3_PIERRE_ICONS.spriteSheet.replace(
+    "</svg>",
+    '<symbol id="t3-private-directory-unchecked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol><symbol id="t3-private-directory-checked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="currentColor"/><path d="m4.5 8 2.2 2.2 4.8-4.8" fill="none" stroke="var(--trees-bg-override, white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>',
+  ),
+};
 
 export function PrivateWorkspaceDirectoryPicker({
   environmentId,
@@ -28,7 +38,14 @@ export function PrivateWorkspaceDirectoryPicker({
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [path, setPath] = useState("~/");
+  const [discoveredDirectories, setDiscoveredDirectories] = useState<ReadonlyArray<string>>([]);
   const queryPath = useDebouncedValue(path, 200);
+  const runBrowse = useAtomQueryRunner(filesystemEnvironment.browse, {
+    reportFailure: false,
+    reportDefect: false,
+  });
+  const runBrowseRef = useRef(runBrowse);
+  runBrowseRef.current = runBrowse;
   const query = useEnvironmentQuery(
     canBrowse && queryPath.trim()
       ? filesystemEnvironment.browse({ environmentId, input: { partialPath: queryPath } })
@@ -39,9 +56,45 @@ export function PrivateWorkspaceDirectoryPicker({
     ...new Set([
       ...value,
       ...projects.map((project) => project.workspaceRoot),
+      ...discoveredDirectories,
       ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
     ]),
   ].sort();
+  useEffect(() => {
+    if (!canBrowse) return;
+    let cancelled = false;
+    const roots = [
+      ...new Set([
+        ...projects.map((project) => project.workspaceRoot),
+        ...value,
+        ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
+      ]),
+    ].filter(Boolean);
+    void (async () => {
+      const seen = new Set<string>();
+      const queue = roots.map((root) => ({ path: root.replace(/\/+$/u, ""), depth: 0 }));
+      const found: string[] = [];
+      while (queue.length > 0 && seen.size < 512 && !cancelled) {
+        const current = queue.shift();
+        if (!current || seen.has(current.path) || current.depth >= 8) continue;
+        seen.add(current.path);
+        const result = await runBrowseRef.current({
+          environmentId,
+          input: { partialPath: `${current.path}/` },
+        });
+        if (result._tag !== "Success") continue;
+        for (const entry of result.value.entries) {
+          if (!entry.fullPath || found.includes(entry.fullPath)) continue;
+          found.push(entry.fullPath);
+          queue.push({ path: entry.fullPath, depth: current.depth + 1 });
+        }
+      }
+      if (!cancelled) setDiscoveredDirectories(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canBrowse, environmentId, projects, query.data?.entries, value]);
   const toggle = (directory: string, checked: boolean) =>
     onChange(
       checked
@@ -64,6 +117,7 @@ export function PrivateWorkspaceDirectoryPicker({
   valueRef.current = value;
   const { model } = useFileTree({
     density: "compact",
+    icons: PRIVATE_WORKSPACE_TREE_ICONS,
     initialExpansion: "open",
     onSelectionChange: (selectedPaths) => {
       const selected = selectedPaths.at(-1);
@@ -79,7 +133,9 @@ export function PrivateWorkspaceDirectoryPicker({
       const directory = treePathByModelPath.get(row.path);
       if (directory === undefined) return null;
       return {
-        text: valueRef.current.includes(directory) ? "✓" : "☐",
+        icon: valueRef.current.includes(directory)
+          ? "t3-private-directory-checked"
+          : "t3-private-directory-unchecked",
         title: valueRef.current.includes(directory) ? gt("Allowed") : gt("Not allowed"),
       };
     },
