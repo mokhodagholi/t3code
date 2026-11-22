@@ -46,6 +46,8 @@ export function PrivateWorkspaceDirectoryPicker({
         ? [...new Set([...value, directory])]
         : value.filter((candidate) => candidate !== directory),
     );
+  const selectAll = () => onChange(directories.slice(0, 32));
+  const reset = () => onChange([]);
   return (
     <section className="space-y-2" aria-label={gt("Allowed directories")}>
       <h3 className="text-xs font-medium">
@@ -69,6 +71,27 @@ export function PrivateWorkspaceDirectoryPicker({
         >
           <T>Select current directory</T>
         </Button>
+      ) : null}
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={disabled || directories.length === 0 || directories.length > 32}
+          onClick={selectAll}
+        >
+          <T>Select all</T>
+        </Button>
+        <Button size="xs" variant="ghost" disabled={disabled || value.length === 0} onClick={reset}>
+          <T>Reset</T>
+        </Button>
+      </div>
+      {directories.length > 32 ? (
+        <p className="text-xs text-muted-foreground">
+          <T>
+            There are more than 32 directories. Select them individually or browse a narrower
+            folder.
+          </T>
+        </p>
       ) : null}
       <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-input p-2">
         {directories.map((directory) => (

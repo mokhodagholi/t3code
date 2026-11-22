@@ -3098,7 +3098,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "en el ordenador que abrió esta página"]
+      "c": [
+        " ",
+        "en el ordenador que abrió esta página"
+      ]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3110,7 +3113,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "· quien lo ejecute obtiene este acceso"]
+      "c": [
+        " ",
+        "· quien lo ejecute obtiene este acceso"
+      ]
     }
   ],
   "c54cc9c75db9dc58": "Aprueba solo un inicio de sesión que acabes de iniciar.",
@@ -8793,6 +8799,8 @@
   "b1bd67badd1b3d79": "Directorios permitidos",
   "873b2ce894439bed": "Selecciona las carpetas del propietario que puede usar este enlace privado. Se incluyen las subcarpetas.",
   "b2393412cb23e579": "Seleccionar el directorio actual",
+  "6d49999f19231b80": "Reset",
+  "32a9ebd829af6971": "There are more than 32 directories. Select them individually or browse a narrower folder.",
   "4443a55da5840592": "Selecciona al menos un directorio para esta cuenta privada.",
   "23930abe24e92ee1": "Los chats con directorios limitados usan Codex. Las terminales del servidor y las herramientas de agentes externos no están disponibles.",
   "1c16849175c9fdd3": "Enviar {signal}",

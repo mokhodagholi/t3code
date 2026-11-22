@@ -3098,7 +3098,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "sur l’ordinateur qui a ouvert cette page"]
+      "c": [
+        " ",
+        "sur l’ordinateur qui a ouvert cette page"
+      ]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3110,7 +3113,10 @@
     {
       "t": "span",
       "i": 2,
-      "c": [" ", "· quiconque l’exécute obtient cet accès"]
+      "c": [
+        " ",
+        "· quiconque l’exécute obtient cet accès"
+      ]
     }
   ],
   "c54cc9c75db9dc58": "N’approuvez qu’une connexion que vous venez de lancer.",
@@ -8795,6 +8801,8 @@
   "b1bd67badd1b3d79": "Dossiers autorisés",
   "873b2ce894439bed": "Choisissez les dossiers du propriétaire accessibles à ce lien privé. Les sous-dossiers sont inclus.",
   "b2393412cb23e579": "Sélectionner le dossier actuel",
+  "6d49999f19231b80": "Reset",
+  "32a9ebd829af6971": "There are more than 32 directories. Select them individually or browse a narrower folder.",
   "4443a55da5840592": "Sélectionnez au moins un dossier pour ce compte privé.",
   "23930abe24e92ee1": "Les discussions limitées à des dossiers utilisent Codex. Les terminaux du serveur et les outils d’agents externes sont indisponibles.",
   "1c16849175c9fdd3": "Envoyer {signal}",
