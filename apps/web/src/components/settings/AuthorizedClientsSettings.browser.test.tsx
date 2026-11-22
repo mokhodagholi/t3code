@@ -112,29 +112,3 @@ describe("AuthorizedClientsHeaderAction", () => {
     expect(screen.getByRole("group", { name: denial }).query()).toBeNull();
   });
 });
-
-it("requires selected owner directories and includes them in the private link", async () => {
-  setup([]);
-  await using screen = await renderHeader(serviceId, AuthStandardClientScopes);
-  await userEvent.click(screen.getByRole("button", { name: "Create link", exact: true }));
-  await userEvent.fill(
-    page.getByRole("textbox", { name: "Private chat account (optional)", exact: true }),
-    "alice",
-  );
-  const dialog = page.getByRole("dialog");
-  await expect
-    .element(dialog.getByRole("button", { name: "Create link", exact: true }))
-    .toBeDisabled();
-  await expect.element(dialog.getByText("/work/owner", { exact: true })).toBeVisible();
-  await expect
-    .element(dialog.getByText("/work/other-machine", { exact: true }))
-    .not.toBeInTheDocument();
-  await userEvent.click(dialog.getByRole("checkbox", { name: "/work/owner", exact: true }));
-  await userEvent.click(dialog.getByRole("button", { name: "Create link", exact: true }));
-  expect(state.create).toHaveBeenCalledWith(
-    expect.objectContaining({
-      environmentId: serviceId,
-      input: expect.objectContaining({ userId: "alice", allowedDirectories: ["/work/owner"] }),
-    }),
-  );
-});

@@ -1,12 +1,14 @@
 import { AuthFilesystemReadScope, type EnvironmentId } from "@t3tools/contracts";
-import { FolderOpenIcon } from "lucide-react";
+import { FileTree, useFileTree } from "@pierre/trees/react";
 import { T, useGT, useMessages } from "gt-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjects } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentScope } from "../../state/session";
 import { useDebouncedValue } from "../../state/queries";
+import { useTheme } from "../../hooks/useTheme";
+import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "../../pierre-tree-theme";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
@@ -23,6 +25,7 @@ export function PrivateWorkspaceDirectoryPicker({
   readonly disabled: boolean;
 }) {
   const gt = useGT();
+  const { resolvedTheme } = useTheme();
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [path, setPath] = useState("~/");
@@ -46,6 +49,27 @@ export function PrivateWorkspaceDirectoryPicker({
         ? [...new Set([...value, directory])]
         : value.filter((candidate) => candidate !== directory),
     );
+  const treePaths = useMemo(
+    () => directories.map((directory) => (directory.endsWith("/") ? directory : `${directory}/`)),
+    [directories.join("\0")],
+  );
+  const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
+  const { model } = useFileTree({
+    density: "compact",
+    initialExpansion: "open",
+    onSelectionChange: (selectedPaths) => {
+      const selected = selectedPaths.at(-1)?.replace(/\/$/u, "");
+      if (selected !== undefined && directories.includes(selected)) toggle(selected, true);
+    },
+    paths: [],
+    search: false,
+    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
+  });
+  useEffect(() => {
+    if (previousTreePaths.current === treePaths) return;
+    previousTreePaths.current = treePaths;
+    model.resetPaths(treePaths);
+  }, [model, treePaths]);
   const selectAll = () => onChange(directories.slice(0, 32));
   const reset = () => onChange([]);
   return (
@@ -93,28 +117,13 @@ export function PrivateWorkspaceDirectoryPicker({
           </T>
         </p>
       ) : null}
-      <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-input p-2">
-        {directories.map((directory) => (
-          <div key={directory} className="flex items-center gap-2">
-            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-xs">
-              <Checkbox
-                checked={value.includes(directory)}
-                disabled={disabled || (!value.includes(directory) && value.length >= 32)}
-                onCheckedChange={(checked) => toggle(directory, checked === true)}
-              />
-              <span className="break-all font-mono">{directory}</span>
-            </label>
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={gt("Open directory {directory}", { directory })}
-              disabled={disabled || !canBrowse}
-              onClick={() => setPath(`${directory.replace(/\/$/, "")}/`)}
-            >
-              <FolderOpenIcon className="size-3.5" />
-            </Button>
-          </div>
-        ))}
+      <div className="max-h-48 overflow-y-auto rounded-md border border-input p-1">
+        <FileTree
+          model={model}
+          aria-label={gt("Owner directories")}
+          className="min-h-20"
+          style={pierreTreeStyle(resolvedTheme)}
+        />
       </div>
       {value.length === 0 ? (
         <p className="text-xs text-muted-foreground">
