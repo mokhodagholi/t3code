@@ -60,6 +60,8 @@ export function PrivateWorkspaceDirectoryPicker({
   );
   const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const { model } = useFileTree({
     density: "compact",
     initialExpansion: "open",
@@ -69,7 +71,7 @@ export function PrivateWorkspaceDirectoryPicker({
         selected === undefined
           ? undefined
           : treePathByModelPath.get(selected.endsWith("/") ? selected : `${selected}/`);
-      if (directory !== undefined) toggle(directory, !value.includes(directory));
+      if (directory !== undefined) toggle(directory, !valueRef.current.includes(directory));
     },
     paths: [],
     renderRowDecoration: ({ row }) => {
@@ -77,8 +79,8 @@ export function PrivateWorkspaceDirectoryPicker({
       const directory = treePathByModelPath.get(row.path);
       if (directory === undefined) return null;
       return {
-        text: value.includes(directory) ? "✓" : "☐",
-        title: value.includes(directory) ? gt("Allowed") : gt("Not allowed"),
+        text: valueRef.current.includes(directory) ? "✓" : "☐",
+        title: valueRef.current.includes(directory) ? gt("Allowed") : gt("Not allowed"),
       };
     },
     search: false,
@@ -89,6 +91,9 @@ export function PrivateWorkspaceDirectoryPicker({
     previousTreePaths.current = treePaths;
     model.resetPaths(treePaths);
   }, [model, treePaths]);
+  useEffect(() => {
+    model.setComposition(model.getComposition());
+  }, [model, value]);
   const selectAll = () => onChange(directories.slice(0, 32));
   const reset = () => onChange([]);
   return (
