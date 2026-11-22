@@ -1,3 +1,4 @@
+import { requireChatOwner } from "../../../auth/PrivateChats.ts";
 import {
   CommandId,
   MessageId,
@@ -490,6 +491,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_project_create: McpToolAccess.writesEnvironment(
     ({ workspaceRoot, ...input }) =>
       Effect.gen(function* () {
+        yield* requireChatOwner;
         const projects = yield* Project.ProjectService;
         if (workspaceRoot === undefined) {
           // Only updates record model defaults; reject defaults that creation would silently drop.
@@ -543,6 +545,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   ),
   t3_project_update: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* requireChatOwner;
       const projects = yield* Project.ProjectService;
       const updated = yield* projects
         .update({ ...input, commandId: yield* newCommandId() })
@@ -552,6 +555,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   ),
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* requireChatOwner;
       const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
       if (yield* folders.isScratchProject(input.projectId))
         return yield* new OrchestratorMcpFailure({
@@ -571,6 +575,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
   t3_project_clone: McpToolAccess.writesEnvironment(
     (input) =>
       Effect.gen(function* () {
+        yield* requireChatOwner;
         const repositories = yield* Repositories.SourceControlRepositoryService;
         // Agents' MCP calls have their own long budget, and an aborted call interrupts git.
         return yield* repositories.cloneRepository(input, { timeoutMs: null }).pipe(

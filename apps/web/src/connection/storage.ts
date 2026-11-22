@@ -741,6 +741,44 @@ const yieldToBrowserTask = Effect.callback<void>((resume) => {
   return Effect.sync(() => port1.close());
 });
 
+const clearEnvironmentCache = Effect.fn("web.connectionStorage.clearEnvironmentCache")(function (
+  database: DatabaseHandle,
+  environmentId: EnvironmentId,
+) {
+  return Effect.all(
+    [
+      Effect.promise(() => projectFaviconCache.clearEnvironment(environmentId)),
+      removeDatabaseValue(database, SHELL_STORE_NAME, environmentId),
+      removeDatabaseValuesInRange(
+        database,
+        THREAD_STORE_NAME,
+        IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
+      ),
+      removeDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId),
+      removeDatabaseValuesInRange(
+        database,
+        VCS_REFS_STORE_NAME,
+        IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
+      ),
+      removeDatabaseValuesInRange(
+        database,
+        QUERY_STORE_NAME,
+        IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
+      ),
+    ],
+    { concurrency: "unbounded", discard: true },
+  ).pipe(Effect.mapError((cause) => persistenceError("clear-environment", cause)));
+});
+
+export const clearStoredEnvironmentCache = Effect.fn(
+  "web.connectionStorage.clearStoredEnvironmentCache",
+)(function* (environmentId: EnvironmentId) {
+  const database = yield* makeDatabaseHandle();
+  yield* clearEnvironmentCache(database.handle, environmentId).pipe(
+    Effect.ensuring(database.close),
+  );
+});
+
 export const layer = Layer.effectContext(
   Effect.gen(function* () {
     const { handle: database } = yield* Effect.acquireRelease(
@@ -1082,29 +1120,7 @@ export const layer = Layer.effectContext(
       ),
       clear: Effect.fn("Persistence.EnvironmentCacheStore.clear")(function (environmentId) {
         threadWriteOrder.clearEnvironment(environmentId);
-        return Effect.all(
-          [
-            Effect.promise(() => projectFaviconCache.clearEnvironment(environmentId)),
-            removeDatabaseValue(database, SHELL_STORE_NAME, environmentId),
-            removeDatabaseValuesInRange(
-              database,
-              THREAD_STORE_NAME,
-              IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
-            ),
-            removeDatabaseValue(database, SERVER_CONFIG_STORE_NAME, environmentId),
-            removeDatabaseValuesInRange(
-              database,
-              VCS_REFS_STORE_NAME,
-              IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
-            ),
-            removeDatabaseValuesInRange(
-              database,
-              QUERY_STORE_NAME,
-              IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
-            ),
-          ],
-          { concurrency: "unbounded", discard: true },
-        ).pipe(Effect.mapError((cause) => persistenceError("clear-environment", cause)));
+        return clearEnvironmentCache(database, environmentId);
       }),
     });
 

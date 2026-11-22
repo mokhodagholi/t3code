@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import {
   IsoDateTime,
   MessageId,
@@ -68,6 +69,7 @@ export class ThreadSearchError extends Schema.TaggedError<ThreadSearchError>()(
 // Token lists bind as JSON arrays, so any number of them is one parameter.
 const TokenList = Schema.fromJsonString(Schema.Array(Schema.String));
 const SearchRequest = Schema.Struct({
+  userId: Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
   /** The FTS5 query, or null to scan messages instead. */
   match: Schema.NullOr(Schema.String),
   /** Tokens every hit must contain, as typed or as their GLOB folding case and Latin accents. */
@@ -219,7 +221,14 @@ export function buildSearchSnippet(text: string, matchStart: number): string {
 // accented queries and non-Latin case can still miss: "fermée"/"fermee", "ОШИБКА"/"ошибка".
 export const messageHitsQuery = (
   sql: SqlClient.SqlClient,
-  { match, substrings, shortSpellings, projectId, excludedThreadIds }: typeof SearchRequest.Encoded,
+  {
+    match,
+    substrings,
+    shortSpellings,
+    projectId,
+    excludedThreadIds,
+    userId,
+  }: typeof SearchRequest.Encoded,
 ) => sql`
     WITH eligible AS MATERIALIZED (
       SELECT threads.thread_id, threads.project_id
@@ -227,6 +236,7 @@ export const messageHitsQuery = (
       INNER JOIN projection_projects AS projects
         ON projects.project_id = threads.project_id
       WHERE threads.deleted_at IS NULL
+        AND (${userId ?? null} IS NULL OR COALESCE(json_extract(threads.payload_json, '$.ownerUserId'), 'owner') = ${userId ?? null})
         AND threads.archived_at IS NULL
         AND projects.deleted_at IS NULL
         AND (${projectId} IS NULL OR threads.project_id = ${projectId})
@@ -408,9 +418,12 @@ export const make = Effect.gen(function* () {
   });
 
   const titleCandidates = SqlSchema.findAll({
-    Request: Schema.Struct({ projectId: Schema.NullOr(ProjectId) }),
+    Request: Schema.Struct({
+      projectId: Schema.NullOr(ProjectId),
+      userId: Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
+    }),
     Result: TitleCandidateRow,
-    execute: ({ projectId }) => sql`
+    execute: ({ projectId, userId }) => sql`
       SELECT
         threads.payload_json AS thread,
         projects.title AS "projectTitle",
@@ -419,6 +432,7 @@ export const make = Effect.gen(function* () {
       INNER JOIN projection_projects AS projects
         ON projects.project_id = threads.project_id
       WHERE threads.deleted_at IS NULL
+        AND (${userId ?? null} IS NULL OR COALESCE(json_extract(threads.payload_json, '$.ownerUserId'), 'owner') = ${userId ?? null})
         AND threads.archived_at IS NULL
         AND projects.deleted_at IS NULL
         AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
@@ -431,10 +445,11 @@ export const make = Effect.gen(function* () {
   const olderSettledTitleCandidates = SqlSchema.findAll({
     Request: Schema.Struct({
       before: Schema.String,
+      userId: Schema.optionalKey(Schema.UndefinedOr(Schema.String)),
       projectIds: Schema.NullOr(TokenList),
     }),
     Result: OlderSettledTitleRow,
-    execute: ({ before, projectIds }) => sql`
+    execute: ({ before, projectIds, userId }) => sql`
       SELECT
         threads.thread_id AS id,
         json_extract(threads.payload_json, '$.title') AS title,
@@ -450,6 +465,7 @@ export const make = Effect.gen(function* () {
       INNER JOIN projection_projects AS projects
         ON projects.project_id = threads.project_id
       WHERE threads.deleted_at IS NULL
+        AND (${userId ?? null} IS NULL OR COALESCE(json_extract(threads.payload_json, '$.ownerUserId'), 'owner') = ${userId ?? null})
         AND threads.archived_at IS NULL
         AND projects.deleted_at IS NULL
         AND json_extract(threads.payload_json, '$.lineage.relationshipToParent')
@@ -535,6 +551,7 @@ export const make = Effect.gen(function* () {
           ? []
           : yield* searchRows({
               ...messageSearch,
+              userId: yield* CurrentChatUser,
               projectId: input.projectId,
               excludedThreadIds: [...(input.excludedThreadIds ?? [])],
             });
@@ -611,7 +628,9 @@ export const make = Effect.gen(function* () {
     const now = DateTime.toEpochMillis(yield* DateTime.now);
     // Agents call this rarely, and a project has hundreds of threads, not
     // millions, so ranking every active thread in memory stays cheap.
-    const candidates = yield* read(titleCandidates({ projectId: input.projectId ?? null }));
+    const candidates = yield* read(
+      titleCandidates({ projectId: input.projectId ?? null, userId: yield* CurrentChatUser }),
+    );
     const subjectById = new Map(
       candidates.map((row): [ThreadId, ThreadSearchSubject] => [
         row.thread.id,
@@ -671,7 +690,11 @@ export const make = Effect.gen(function* () {
     const normalizedQuery = foldSearchQuery(query);
     const now = DateTime.toEpochMillis(yield* DateTime.now);
     const candidates = yield* read(
-      olderSettledTitleCandidates({ before, projectIds: projectIds ?? null }),
+      olderSettledTitleCandidates({
+        before,
+        projectIds: projectIds ?? null,
+        userId: yield* CurrentChatUser,
+      }),
     );
     const subjectOf = (row: typeof OlderSettledTitleRow.Type): ThreadSearchSubject => ({
       id: row.id,

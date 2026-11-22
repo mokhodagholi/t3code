@@ -1,3 +1,4 @@
+import { threadVisibility } from "../auth/PrivateChats.ts";
 import {
   normalizeThreadPullRequestKey,
   threadPullRequestKeyOf,
@@ -49,7 +50,7 @@ export const listLinkedPullRequestThreads = Effect.fn("listLinkedPullRequestThre
       JOIN json_each(t.payload_json, '$.pullRequests') AS link
       WHERE json_extract(link.value, '$.number') = ${key.number}
         AND json_extract(link.value, '$.source') != 'stack-dismissed'
-        AND t.deleted_at IS NULL
+        AND ${yield* threadVisibility(sql)} AND t.deleted_at IS NULL
         AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1
       ORDER BY "updatedAt" DESC, id ASC
     `.pipe(NodeSqliteClient.readOnly);

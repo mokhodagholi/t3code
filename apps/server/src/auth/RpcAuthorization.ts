@@ -6,6 +6,7 @@ import {
   authScopeRequiredResponse,
   AssetCreateUrlInput,
   AuthAccessReadScope,
+  AuthAccessWriteScope,
   ServerSettingsPatch,
   ProviderInstanceMutation,
   requiredScopesForServerSettingsPatch,
@@ -38,6 +39,7 @@ import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import { isProviderSignOutPrompt } from "../orchestration-v2/CommandPolicy.ts";
+import { CurrentChatUser } from "./PrivateChats.ts";
 
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
 
@@ -340,14 +342,43 @@ const requiredScopesForRpcCall = (
 export const layer = (
   scopes: ReadonlyArray<AuthEnvironmentScope>,
   onAuthorized?: (method: string, payload: unknown) => Effect.Effect<void>,
+  privateChats?: {
+    readonly userId: string;
+    readonly authorize: (
+      method: string,
+      payload: unknown,
+    ) => Effect.Effect<void, EnvironmentAuthorizationError>;
+  },
 ) =>
   Layer.succeed(RpcScopeAuthorization)((effect, { rpc, payload }) => {
+    const ownerOnly =
+      rpc._tag.startsWith("scheduledTasks.") ||
+      rpc._tag === WS_METHODS.projectsMutate ||
+      rpc._tag === WS_METHODS.projectsCreateNew ||
+      rpc._tag === WS_METHODS.projectsCreateFromThread ||
+      rpc._tag === WS_METHODS.serverGetStorageCleanupReport ||
+      rpc._tag === WS_METHODS.serverGetDatabaseStorage ||
+      rpc._tag === WS_METHODS.serverListAcpRegistrySessions ||
+      rpc._tag === WS_METHODS.serverImportAcpRegistrySession ||
+      rpc._tag === WS_METHODS.serverDeleteAcpRegistrySession;
+    if (privateChats !== undefined && privateChats.userId !== "owner" && ownerOnly) {
+      return Effect.fail(rpcAuthorizationError(AuthAccessWriteScope));
+    }
     const requiredScopes = requiredScopesForRpcCall(rpc._tag, payload);
     const requiredScope = requiredScopes.find((scope) => !scopes.includes(scope));
     if (requiredScope !== undefined) return Effect.fail(rpcAuthorizationError(requiredScope));
-    return onAuthorized === undefined
-      ? effect
-      : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
+    const authorized =
+      onAuthorized === undefined
+        ? effect
+        : Effect.tap(effect, () => onAuthorized(rpc._tag, payload));
+    return privateChats === undefined
+      ? authorized
+      : privateChats
+          .authorize(rpc._tag, payload)
+          .pipe(
+            Effect.andThen(authorized),
+            Effect.provideService(CurrentChatUser, privateChats.userId),
+          );
   });
 
 /** Retrying can install or restart tools even though ordinary listing is readable. */

@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import type {
   ApplicationStoredEvent,
   OrchestrationProjectShell,
@@ -92,6 +93,7 @@ export const loadShellUnlessResumable = Effect.fnUntraced(function* <A, E, R>(in
   readonly loadSnapshot: Effect.Effect<A, E, R>;
 }) {
   if (
+    (yield* CurrentChatUser) === undefined &&
     input.resumeFrom !== undefined &&
     (yield* canResumeShellFrom(
       input.events,

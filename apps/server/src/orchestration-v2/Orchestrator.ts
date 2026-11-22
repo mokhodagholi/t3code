@@ -1,3 +1,4 @@
+import { CurrentChatUser, referencedThreads } from "../auth/PrivateChats.ts";
 import type {
   OrchestrationV2ThreadLinkMetadata,
   GuestShareId,
@@ -3997,6 +3998,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
+      ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
@@ -9864,6 +9866,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ordinal: (yield* subagentCount(command.parentThreadId)) + 1,
       });
       const childThread: OrchestrationV2AppThread = {
+        ...(parentProjection.thread.ownerUserId === undefined
+          ? {}
+          : { ownerUserId: parentProjection.thread.ownerUserId }),
         ...makeSubagentChildThread({
           parentThread: parentProjection.thread,
           childThreadId,
@@ -15918,6 +15923,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     sideChatIds: ReadonlyArray<ThreadId> = [],
     cancelledTask?: OrchestrationV2Subagent,
   ): Effect.fn.Return<OrchestratorV2DispatchResult, OrchestratorV2Error> {
+    const userId = yield* CurrentChatUser;
+    if (userId !== undefined) {
+      const newId =
+        command.type === "thread.create"
+          ? command.threadId
+          : command.type === "thread.fork"
+            ? command.targetThreadId
+            : undefined;
+      for (const id of referencedThreads(command)) {
+        const thread = yield* projectionStore
+          .findThread(ThreadId.make(id))
+          .pipe(Effect.provideService(CurrentChatUser, undefined), mapDispatchError(command));
+        if (thread === null && id === newId) continue;
+        if (thread === null || (thread.ownerUserId ?? "owner") !== userId) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The chat is unavailable.",
+          });
+        }
+      }
+    }
     yield* Effect.annotateCurrentSpan({
       "orchestration_v2.command_id": command.commandId,
       "orchestration_v2.command_type": command.type,
@@ -16205,7 +16232,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
 
   // dispatchWithReceiptEffect owns the dispatch span; this wrapper selects the thread locks.
-  const dispatchWithReceipt = Effect.fnUntraced(function* (command: OrchestrationV2ServerCommand) {
+  const dispatchWithReceipt = Effect.fnUntraced(function* (input: OrchestrationV2ServerCommand) {
+    const userId = yield* CurrentChatUser;
+    const command =
+      input.type === "thread.create" && userId !== undefined
+        ? { ...input, ownerUserId: userId }
+        : input;
     const dispatch = threadDispatch.withLock(
       commandThreadId(command),
       dispatchWithReceiptEffect(command),

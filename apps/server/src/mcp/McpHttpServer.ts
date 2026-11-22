@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -348,7 +349,16 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     if (HttpServerResponse.isHttpServerResponse(admitted)) return admitted;
     if (yield* isUndefinedNotification(request)) return HttpServerResponse.empty({ status: 202 });
     const linkExpiresAt = admitted.client?.linkExpiresAt;
+    const callerThread =
+      admitted.thread === undefined || Option.isNone(projections)
+        ? null
+        : yield* projections.value
+            .getThread(admitted.thread.threadId)
+            .pipe(Effect.orElseSucceed(() => null));
+    if (admitted.thread !== undefined && Option.isSome(projections) && callerThread === null)
+      return HttpServerResponse.empty({ status: 403 });
     return yield* httpEffect.pipe(
+      Effect.provideService(CurrentChatUser, callerThread?.ownerUserId ?? "owner"),
       Effect.provideService(McpInvocationContext.McpInvocationContext, admitted),
       Effect.map(normalizeMcpHttpResponse),
       Effect.map((response) =>
@@ -714,6 +724,7 @@ const registerPreviewSnapshot = Effect.fn("McpHttpServer.registerPreviewSnapshot
           Effect.provideService(PreviewAutomationBroker.PreviewAutomationBroker, broker),
           Effect.provideService(ThreadManagementService.ThreadManagementService, threads),
           Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(CurrentChatUser, Context.get(fiber.context, CurrentChatUser)),
           Effect.flatMap(({ encodedResult }) =>
             Effect.gen(function* () {
               const snapshot = encodedResult as SnapshotMetadata & {
@@ -911,6 +922,7 @@ const registerImageTool = Effect.fn("McpHttpServer.registerImageTool")(function*
         );
         return provide(handle(payload)).pipe(
           Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(CurrentChatUser, Context.get(fiber.context, CurrentChatUser)),
           Effect.matchCauseEffect({
             onFailure: imageToolFailure(tool.name, operation, failureText),
             onSuccess: ({ encodedResult }) => {
@@ -1394,8 +1406,22 @@ export const layerInProcessMcpServer = McpServer.middleware<{
       Effect.serviceOption(McpInvocationContext.McpInvocationContext),
       Option.match({
         onNone: () => Effect.die("Provide McpInvocationContext around the in-process MCP call."),
-        onSome: (scope) =>
-          Effect.provideService(effect, McpInvocationContext.McpInvocationContext, scope),
+        onSome: Effect.fn("McpServer.privateChatCaller")(function* (scope) {
+          const projections = yield* Effect.serviceOption(ProjectionStore.ProjectionStoreV2);
+          const caller =
+            scope.thread === undefined || Option.isNone(projections)
+              ? null
+              : yield* projections.value
+                  .getThread(scope.thread.threadId)
+                  .pipe(Effect.orElseSucceed(() => null));
+          if (scope.thread !== undefined && Option.isSome(projections) && caller === null) {
+            return yield* Effect.die(new Error("The calling chat is unavailable."));
+          }
+          return yield* effect.pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+            Effect.provideService(CurrentChatUser, caller?.ownerUserId ?? "owner"),
+          );
+        }),
       }),
     ),
   { global: true },

@@ -1804,6 +1804,7 @@ it.effect(
               Layer.mock(GitManager.GitManager)({}),
               Layer.mock(Orchestrator.OrchestratorV2)({}),
               Layer.mock(ProjectionStore.ProjectionStoreV2)({
+                getThread: () => Effect.succeed({ ownerUserId: "owner" } as never),
                 getThreadShell: (threadId) =>
                   Effect.succeed({
                     projectId: ProjectId.make(threadId.replace("thread-", "project-")),

@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import * as NodeSqlite from "node:sqlite";
 
 import { assert, it, vi } from "@effect/vitest";
@@ -12043,3 +12044,43 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 });
+
+it.effect("private chat accounts cannot read another account's history, listings or titles", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const sql = yield* SqlClient.SqlClient;
+    const alice = ThreadId.make("thread:private-alice");
+    const bob = ThreadId.make("thread:private-bob");
+    const legacy = ThreadId.make("thread:private-legacy");
+    for (const id of [alice, bob, legacy]) yield* store.apply(recordsThreadCreated(id));
+    yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.ownerUserId', 'alice') WHERE thread_id = ${alice}`;
+    yield* sql`UPDATE orchestration_v2_projection_threads SET payload_json = json_set(payload_json, '$.ownerUserId', 'bob') WHERE thread_id = ${bob}`;
+    yield* Effect.gen(function* () {
+      assert.strictEqual((yield* store.getThread(alice)).ownerUserId, "alice");
+      assert.isNull(yield* store.findThread(bob));
+      assert.isNull(yield* store.getThreadShell(bob));
+      assert.strictEqual(
+        (yield* Effect.flip(store.getThreadProjection(bob)))._tag,
+        "ProjectionStoreThreadNotFoundError",
+      );
+      assert.deepEqual(
+        (yield* store.getShellSnapshot()).threads.map((thread) => thread.id),
+        [alice],
+      );
+      assert.deepEqual(
+        (yield* store.listActiveShellIndex()).map((thread) => thread.id),
+        [alice],
+      );
+      assert.deepEqual(yield* store.getThreadTitles([alice, bob, legacy]), { [alice]: alice });
+      assert.strictEqual(yield* store.countThreads(), 1);
+    }).pipe(Effect.provideService(CurrentChatUser, "alice"));
+    const ownerThreads = yield* store
+      .getShellSnapshot()
+      .pipe(Effect.provideService(CurrentChatUser, "owner"));
+    assert.deepEqual(
+      ownerThreads.threads.map((thread) => thread.id),
+      [legacy],
+    );
+    assert.strictEqual(yield* store.countThreads(), 3);
+  }).pipe(Effect.provide(layerTest)),
+);

@@ -615,6 +615,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
+  const [pairingUserId, setPairingUserId] = useState("");
   const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthGrantScope>>([
     ...AuthStandardClientScopes,
   ]);
@@ -634,11 +635,16 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
     const trimmedLabel = pairingLabel.trim();
     const result = await createPairingCredential({
       environmentId,
-      input: { ...(trimmedLabel ? { label: trimmedLabel } : {}), scopes: selectedScopes },
+      input: {
+        ...(trimmedLabel ? { label: trimmedLabel } : {}),
+        ...(pairingUserId.trim() ? { userId: pairingUserId.trim() } : {}),
+        scopes: selectedScopes,
+      },
     });
     if (result._tag === "Success") {
       onPairingLinkCreated(result.value);
       setPairingLabel("");
+      setPairingUserId("");
       setPairingScopes(
         AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
       );
@@ -692,6 +698,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
           setDialogOpen(open);
           if (!open) {
             setPairingLabel("");
+            setPairingUserId("");
             setPairingScopes(
               AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
             );
@@ -721,6 +728,24 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-foreground">
+                <T>Private chat account (optional)</T>
+              </span>
+              <Input
+                value={pairingUserId}
+                onChange={(event) => setPairingUserId(event.target.value.toLowerCase())}
+                placeholder="alice"
+                maxLength={32}
+                disabled={isCreatingPairingLink}
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                <T>
+                  Use the same account name for another device to see its chats. Leave blank to
+                  share the owner's account.
+                </T>
+              </p>
+            </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-foreground">
                 <T>Client label (optional)</T>
@@ -834,7 +859,12 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
               <T>Cancel</T>
             </Button>
             <Button
-              disabled={isCreatingPairingLink || selectedScopes.length === 0}
+              disabled={
+                isCreatingPairingLink ||
+                selectedScopes.length === 0 ||
+                (pairingUserId.trim() !== "" &&
+                  !/^(?!owner$)[a-z][a-z0-9_-]{0,31}$/.test(pairingUserId.trim()))
+              }
               onClick={() => void handleCreatePairingLink()}
             >
               {isCreatingPairingLink ? gt("Creating…") : gt("Create link")}

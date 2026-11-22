@@ -199,6 +199,7 @@ export const AuthBrowserSessionRequest = Schema.Struct({
 export type AuthBrowserSessionRequest = typeof AuthBrowserSessionRequest.Type;
 
 export const AuthBrowserSessionResult = Schema.Struct({
+  userId: Schema.optionalKey(TrimmedNonEmptyString),
   authenticated: Schema.Literal(true),
   ...authScopeResponseFields,
   sessionMethod: ServerAuthSessionMethod,
@@ -512,6 +513,9 @@ export const AuthRevokeConnectDeviceResult = Schema.Struct({
 export type AuthRevokeConnectDeviceResult = typeof AuthRevokeConnectDeviceResult.Type;
 
 const pairingCredentialFields = {
+  userId: Schema.optionalKey(
+    TrimmedNonEmptyString.check(Schema.isPattern(/^(?!owner$)[a-z][a-z0-9_-]{0,31}$/)),
+  ),
   label: Schema.optionalKey(TrimmedNonEmptyString),
   scopes: Schema.optionalKey(AuthGrantScopes),
 };
@@ -531,6 +535,7 @@ export const AuthCreatePairingCredentialInput = Schema.Union([
 export type AuthCreatePairingCredentialInput = typeof AuthCreatePairingCredentialInput.Type;
 
 export const AuthSessionState = Schema.Struct({
+  userId: Schema.optionalKey(TrimmedNonEmptyString),
   authenticated: Schema.Boolean,
   auth: ServerAuthDescriptor,
   scopes: Schema.optionalKey(AuthEnvironmentScopes),

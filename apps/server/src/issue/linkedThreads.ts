@@ -1,3 +1,4 @@
+import { threadVisibility } from "../auth/PrivateChats.ts";
 import {
   IssueLinkedThreadsResult,
   IssueOperationError,
@@ -38,7 +39,7 @@ export const listLinkedIssueThreads = Effect.fn("listLinkedIssueThreads")(
       FROM orchestration_v2_projection_threads AS t
       JOIN json_each(t.payload_json, '$.issues') AS link
       WHERE json_extract(link.value, '$.key') = ${key.key.trim()}
-        AND t.deleted_at IS NULL
+        AND ${yield* threadVisibility(sql)} AND t.deleted_at IS NULL
         AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1
       ORDER BY "updatedAt" DESC, id ASC
     `.pipe(NodeSqliteClient.readOnly);

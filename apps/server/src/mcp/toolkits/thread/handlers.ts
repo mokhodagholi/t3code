@@ -1,3 +1,4 @@
+import { requireChatOwner } from "../../../auth/PrivateChats.ts";
 import {
   type CommandId,
   type RuntimeRequestId,
@@ -110,6 +111,7 @@ const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A,
 export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   run_scheduled_task_now: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
+      yield* requireChatOwner;
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;
       const { tasks } = yield* scheduler.list().pipe(Effect.mapError(unavailable));
       if (!tasks.some((task) => task.id === input.taskId))

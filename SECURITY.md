@@ -22,6 +22,15 @@ here is about who can get a session, what each kind of session can reach, and
 whether revocation and ceilings hold. It is not about what a full session can do
 once it has one.
 
+This fork also checks chat ownership for authenticated clients. Named private
+chat accounts receive a reduced grant and may access only their own threads;
+legacy sessions use the owner account. Owner sessions also see only owner chats
+through the chat API. Background orchestration has no client identity and may
+process every account's work. Guest links remain explicit grants to one shared
+thread. This boundary does not isolate the underlying operating-system account:
+terminals and agents can still read its files. See
+[private chat accounts](docs/user/private-chats.md) for setup and limitations.
+
 ## Principals
 
 | Principal                                                                                        | How it gets in                              | What it may do                                                                                                                                                                             |

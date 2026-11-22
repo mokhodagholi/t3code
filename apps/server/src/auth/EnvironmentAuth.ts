@@ -28,6 +28,7 @@ import {
 import { isLocalLoopbackHost } from "@t3tools/shared/hostClassification";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Context from "effect/Context";
+import { chatUserForSubject, privateChatScopes } from "./PrivateChats.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -921,6 +922,7 @@ export const make = Effect.gen(function* () {
         (session) =>
           ({
             authenticated: true,
+            userId: chatUserForSubject(session.subject),
             auth: descriptor,
             ...authScopeResponse(session.scopes),
             sessionMethod: session.method,
@@ -949,6 +951,7 @@ export const make = Effect.gen(function* () {
                 ({
                   response: {
                     authenticated: true,
+                    userId: chatUserForSubject(session.subject),
                     ...authScopeResponse(session.scopes),
                     sessionMethod: session.method,
                     expiresAt: DateTime.toUtc(DateTime.add(now, { days: 30 })),
@@ -990,6 +993,7 @@ export const make = Effect.gen(function* () {
     return {
       response: {
         authenticated: true,
+        userId: chatUserForSubject(grant.subject),
         ...authScopeResponse(session.scopes),
         sessionMethod: session.method,
         expiresAt: DateTime.toUtc(session.expiresAt),
@@ -1382,11 +1386,15 @@ export const make = Effect.gen(function* () {
     createPairingLink({
       scopes: input?.access
         ? mcpClientScopes(input.access)
-        : (input?.scopes ?? AuthStandardClientScopes),
+        : input?.userId !== undefined
+          ? privateChatScopes(input.scopes ?? AuthStandardClientScopes)
+          : (input?.scopes ?? AuthStandardClientScopes),
       subject:
         input?.purpose === "peer-link" && input.access
           ? `${PEER_LINK_PAIRING_SUBJECT_PREFIX}${input.access}`
-          : "one-time-token",
+          : input?.userId !== undefined
+            ? `chat-user:${input.userId}`
+            : "one-time-token",
       ...(input?.label ? { label: input.label } : {}),
       ...(input?.access && input.purpose !== "peer-link" ? { mcpApproval: input.access } : {}),
     }).pipe(
@@ -1676,9 +1684,11 @@ export const make = Effect.gen(function* () {
           Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "insufficient_scope" })),
       }),
       Effect.flatMap((grant) =>
-        grant.method !== "one-time-token" && grant.method !== "reusable-dev-token"
-          ? Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "not_a_pairing_code" }))
-          : Effect.succeed(mcpApprovalLevel(grant.subject) ?? access),
+        grant.subject.startsWith("chat-user:")
+          ? Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "insufficient_scope" }))
+          : grant.method !== "one-time-token" && grant.method !== "reusable-dev-token"
+            ? Effect.fail(new ServerAuthMcpApprovalCodeError({ reason: "not_a_pairing_code" }))
+            : Effect.succeed(mcpApprovalLevel(grant.subject) ?? access),
       ),
       Effect.withSpan("EnvironmentAuth.consumeMcpApprovalCode"),
     );

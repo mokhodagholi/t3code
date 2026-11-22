@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import { vi } from "vite-plus/test";
 import { assert, it } from "@effect/vitest";
 import {
@@ -164,5 +165,52 @@ it.effect("a command id reused concurrently for two threads succeeds for only on
         winnerExit.value.storedEvents.map((stored) => stored.sequence),
       );
     }
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("private ownership is authoritative under the dispatch lock", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:private-create-race");
+    const results = yield* Effect.forEach(
+      ["alice", "bob"],
+      (userId) =>
+        Effect.exit(
+          orchestrator
+            .dispatch({
+              type: "thread.create",
+              commandId: CommandId.make(`create-private:${userId}`),
+              threadId,
+              projectId: ProjectId.make("project:private-race"),
+              title: userId,
+              ownerUserId: userId === "alice" ? "bob" : "alice",
+              modelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdBy: "user",
+              creationSource: "web",
+            })
+            .pipe(Effect.provideService(CurrentChatUser, userId)),
+        ),
+      { concurrency: "unbounded" },
+    );
+    assert.strictEqual(results.filter(Exit.isSuccess).length, 1);
+    const thread = yield* projections.getThread(threadId);
+    const owner = thread.ownerUserId!;
+    assert.strictEqual(thread.title, owner);
+    const other = owner === "alice" ? "bob" : "alice";
+    const denied = yield* orchestrator
+      .dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("private-denied-rename"),
+        threadId,
+        title: "stolen",
+      })
+      .pipe(Effect.provideService(CurrentChatUser, other), Effect.exit);
+    assert.isTrue(Exit.isFailure(denied));
+    assert.strictEqual((yield* projections.getThread(threadId)).title, owner);
   }).pipe(Effect.provide(layerTest)),
 );

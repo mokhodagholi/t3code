@@ -1,3 +1,9 @@
+import {
+  authorizeThreadReferences,
+  canReadThread,
+  chatUserForSubject,
+  CurrentChatUser,
+} from "./auth/PrivateChats.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- A synchronous digest inside the pure provider mapping.
 import * as NodeCrypto from "node:crypto";
@@ -1267,6 +1273,11 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 
     const toShellStream = <E, R>(stream: Stream.Stream<ShellApplicationEvent, E, R>) =>
       stream.pipe(
+        Stream.filterEffect((stored) =>
+          "aggregateKind" in stored
+            ? Effect.succeed(true)
+            : canReadThread(sql, stored.event.threadId),
+        ),
         Stream.groupedWithin(512, Duration.millis(50)),
         Stream.mapEffect((events) => projectShellItems(Array.from(events))),
         Stream.flatMap(Stream.fromIterable),
@@ -1345,7 +1356,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       Stream.concat(completionMarker, liveFrom(afterSequence));
 
     const stream = yield* Effect.gen(function* () {
-      if (input.afterSequence === undefined) {
+      if (input.afterSequence === undefined || (yield* CurrentChatUser) !== undefined) {
         const loaded = yield* loadSnapshot();
         return composeShellStreamWithEnrichment({
           initial: initialSnapshotItems(loaded),
@@ -1450,6 +1461,11 @@ export const layerWsRpc = (
         | ServerSettings.ServerSettingsService
         | DocumentText.DocumentText
       >();
+      const privateIntakeContext = Context.add(
+        intakeContext,
+        CurrentChatUser,
+        chatUserForSubject(currentSession.subject),
+      );
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const projectStore = yield* ProjectStore.ProjectStoreV2;
       const projectService = yield* ProjectService.ProjectService;
@@ -2026,7 +2042,7 @@ export const layerWsRpc = (
                             currentSession.scopes.includes(AuthProvidersManageScope),
                         },
                       )
-                  ).pipe(Effect.provide(intakeContext)),
+                  ).pipe(Effect.provide(privateIntakeContext)),
                 )
                 .pipe(
                   Effect.tap((result) =>
@@ -2232,7 +2248,7 @@ export const layerWsRpc = (
                           creationSource: input.creationSource ?? "web",
                         }),
                       ),
-                      Effect.provide(intakeContext),
+                      Effect.provide(privateIntakeContext),
                     ),
                 )
                 .pipe(
@@ -3283,7 +3299,26 @@ export const layerWsRpc = (
         [WS_METHODS.subscribeTerminalMetadata]: (_input) =>
           Stream.callback<TerminalMetadataStreamEvent>((queue) =>
             Effect.acquireRelease(
-              terminalManager.subscribeMetadata((event) => Queue.offer(queue, event)),
+              terminalManager.subscribeMetadata((event) =>
+                Effect.gen(function* () {
+                  if (event.type === "snapshot") {
+                    const terminals = yield* Effect.filter(event.terminals, (terminal) =>
+                      canReadThread(sql, terminal.threadId).pipe(Effect.orElseSucceed(() => false)),
+                    );
+                    yield* Queue.offer(queue, { ...event, terminals });
+                  } else {
+                    const threadId =
+                      event.type === "upsert" ? event.terminal.threadId : event.threadId;
+                    if (yield* canReadThread(sql, threadId).pipe(Effect.orElseSucceed(() => false)))
+                      yield* Queue.offer(queue, event);
+                  }
+                }).pipe(
+                  Effect.provideService(
+                    CurrentChatUser,
+                    chatUserForSubject(currentSession.subject),
+                  ),
+                ),
+              ),
               (unsubscribe) => Effect.sync(unsubscribe),
             ),
           ),
@@ -3295,7 +3330,12 @@ export const layerWsRpc = (
         [WS_METHODS.previewClearProfile]: (input) => serverBrowser.clearProfile(input.profileId),
         [WS_METHODS.previewReportProfiles]: (input) => reportProfiles(input),
         [WS_METHODS.previewReportStatus]: (input) => previewManager.reportStatus(input),
-        [WS_METHODS.subscribePreviewEvents]: (_input) => previewManager.events,
+        [WS_METHODS.subscribePreviewEvents]: (_input) =>
+          previewManager.events.pipe(
+            Stream.filterEffect((event) =>
+              canReadThread(sql, event.threadId).pipe(Effect.orElseSucceed(() => false)),
+            ),
+          ),
         [WS_METHODS.deviceConfigure]: (input) => deviceService.configure(input),
         [WS_METHODS.deviceTestHost]: (input) => deviceService.testHost(input),
         [WS_METHODS.deviceEasAccount]: (input) => deviceService.easAccount(input),
@@ -3664,21 +3704,28 @@ export const layer = Layer.unwrap(
             Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
             Effect.provide(
               Layer.merge(
-                RpcAuthorization.layer(session.scopes, (method, payload) => {
-                  // Anonymous product signal: the feature and its enum variant,
-                  // credited to the connecting client's surface only.
-                  const usage = featureUsage(method, payload);
-                  return usage === undefined
-                    ? Effect.void
-                    : analytics
-                        .record("feature.used", {
-                          ...usage,
-                          ...(clientAnalyticsProps.surface === undefined
-                            ? {}
-                            : { surface: clientAnalyticsProps.surface }),
-                        })
-                        .pipe(Effect.ignore);
-                }),
+                RpcAuthorization.layer(
+                  session.scopes,
+                  (method, payload) => {
+                    // Anonymous product signal: the feature and its enum variant,
+                    // credited to the connecting client's surface only.
+                    const usage = featureUsage(method, payload);
+                    return usage === undefined
+                      ? Effect.void
+                      : analytics
+                          .record("feature.used", {
+                            ...usage,
+                            ...(clientAnalyticsProps.surface === undefined
+                              ? {}
+                              : { surface: clientAnalyticsProps.surface }),
+                          })
+                          .pipe(Effect.ignore);
+                  },
+                  {
+                    userId: chatUserForSubject(session.subject),
+                    authorize: (method, payload) => authorizeThreadReferences(sql, payload, method),
+                  },
+                ),
                 rpcInstrumentationLayer,
               ),
             ),

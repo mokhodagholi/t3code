@@ -1,3 +1,4 @@
+import { canReadThread, threadVisibility } from "../auth/PrivateChats.ts";
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
 import { applyOrchestrationV2ThreadVisit, pendingGuestMessageCount } from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
@@ -5922,14 +5923,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       );
 
     const selectThread = (threadId: ThreadId) =>
-      sql<PayloadRow>`
+      Effect.flatMap(threadVisibility(sql, "orchestration_v2_projection_threads"), (visibility) =>
+        sql<PayloadRow>`
         SELECT payload_json FROM orchestration_v2_projection_threads
-        WHERE thread_id = ${threadId}
+        WHERE thread_id = ${threadId} AND ${visibility}
       `.pipe(
-        Effect.flatMap((rows) =>
-          rows[0] === undefined ? Effect.succeed(null) : decodeThreadPayload(rows[0].payload_json),
+          Effect.flatMap((rows) =>
+            rows[0] === undefined
+              ? Effect.succeed(null)
+              : decodeThreadPayload(rows[0].payload_json),
+          ),
+          Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
         ),
-        Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })),
       );
 
     const getThread: ProjectionStoreV2Shape["getThread"] = Effect.fn("ProjectionStore.getThread")(
@@ -8299,7 +8304,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readonly includeDeleted?: boolean;
       } = {},
     ) =>
-      sql<ShellThreadRow>`
+      Effect.flatMap(
+        threadVisibility(sql),
+        (visibility) =>
+          sql<ShellThreadRow>`
             SELECT
               t.thread_id,
               t.payload_json,
@@ -8476,7 +8484,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 candidate.ordinal DESC, candidate.run_id DESC
               LIMIT 1
             ) AND blocked.status = 'failed'
-            WHERE ${includeDeleted ? sql`1 = 1` : sql`t.deleted_at IS NULL`}${
+            WHERE ${includeDeleted ? sql`1 = 1` : sql`t.deleted_at IS NULL`} AND ${visibility}${
               listedOnly
                 ? sql` AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
                     AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1`
@@ -8509,7 +8517,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     THEN json_extract(t.payload_json, '$.worktreePath') END = ${worktreePath}`
             }${threadIds === undefined ? sql`` : sql` AND t.thread_id IN (SELECT value FROM json_each(${encodeIdList(threadIds)}))`}
             ORDER BY t.updated_at ASC, t.thread_id ASC
-          `;
+          `,
+      );
 
     const selectShellRunRows = (threadIds?: ReadonlyArray<ThreadId>) =>
       threadIds === undefined
@@ -8889,7 +8898,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           const rows = yield* sql<PayloadRow>`
           SELECT payload_json
           FROM orchestration_v2_projection_threads
-          WHERE deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND thread_id = ${threadId}`}
+          WHERE ${yield* threadVisibility(sql, "orchestration_v2_projection_threads")} AND deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND thread_id = ${threadId}`}
             AND json_extract(payload_json, '$.archivedAt') IS NULL
             AND json_array_length(payload_json, '$.pullRequests') > 0
           ORDER BY updated_at ASC, thread_id ASC
@@ -8911,20 +8920,22 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       );
 
     const getThreadWorktreePaths: ProjectionStoreV2Shape["getThreadWorktreePaths"] = (options) =>
-      sql<{ readonly thread_id: string; readonly worktree_path: string }>`
+      Effect.flatMap(threadVisibility(sql, "orchestration_v2_projection_threads"), (visibility) =>
+        sql<{ readonly thread_id: string; readonly worktree_path: string }>`
         SELECT thread_id, json_extract(payload_json, '$.worktreePath') AS worktree_path
         FROM orchestration_v2_projection_threads
-        WHERE deleted_at IS NULL
+        WHERE deleted_at IS NULL AND ${visibility}
           ${options?.includeArchived === true ? sql`` : sql`AND archived_at IS NULL`}
           AND json_extract(payload_json, '$.worktreePath') IS NOT NULL
       `.pipe(
-        Effect.map((rows) =>
-          rows.map((row) => ({
-            threadId: ThreadId.make(row.thread_id),
-            worktreePath: row.worktree_path,
-          })),
+          Effect.map((rows) =>
+            rows.map((row) => ({
+              threadId: ThreadId.make(row.thread_id),
+              worktreePath: row.worktree_path,
+            })),
+          ),
+          Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
         ),
-        Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
     const shellThreadStateFromRow =
@@ -9255,7 +9266,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.gen(function* () {
           const rows = yield* sql<PayloadRow>`
           SELECT t.payload_json FROM orchestration_v2_projection_threads t
-          WHERE t.deleted_at IS NULL${
+          WHERE t.deleted_at IS NULL AND ${yield* threadVisibility(sql)}${
             threadId === undefined
               ? sql` AND t.archived_at IS NULL`
               : sql` AND t.thread_id = ${threadId}`
@@ -9377,7 +9388,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const countThreads = Effect.fn("ProjectionStore.countThreads")(function* () {
       const rows = yield* sql<{ readonly count: number }>`
-        SELECT COUNT(*) AS count FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL
+        SELECT COUNT(*) AS count FROM orchestration_v2_projection_threads WHERE ${yield* threadVisibility(sql, "orchestration_v2_projection_threads")} AND deleted_at IS NULL
       `;
       return rows[0]?.count ?? 0;
     }, Effect.mapError(shellSnapshotReadError));
@@ -9468,7 +9479,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_type(subagent.payload_json, '$.remoteChild') = 'object'
           ) AS has_remote_tasks
         FROM orchestration_v2_projection_threads t
-        WHERE t.deleted_at IS NULL
+        WHERE ${yield* threadVisibility(sql, "t")} AND t.deleted_at IS NULL
           AND t.archived_at IS NULL
         ORDER BY t.updated_at ASC, t.thread_id ASC
       `;
@@ -9524,7 +9535,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           json_extract(t.payload_json, '$.settledAt') AS settled_at,
           json_extract(t.payload_json, '$.snoozedUntil') AS snoozed_until
         FROM orchestration_v2_projection_threads t
-        WHERE t.deleted_at IS NULL
+        WHERE ${yield* threadVisibility(sql, "t")} AND t.deleted_at IS NULL
           AND t.archived_at IS NULL${projectId === undefined ? sql`` : sql` AND t.project_id = ${projectId}`}
       `;
       return rows.map((row): ActiveThreadListEntry => ({
@@ -9562,7 +9573,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       }>`
         SELECT thread_id, title, project_id
         FROM orchestration_v2_projection_threads
-        WHERE deleted_at IS NULL AND thread_id IN ${sql.in(threadIds)}
+        WHERE ${yield* threadVisibility(sql, "orchestration_v2_projection_threads")} AND deleted_at IS NULL AND thread_id IN ${sql.in(threadIds)}
       `;
       return Object.fromEntries(
         rows.map((row) => [row.thread_id, { title: row.title, projectId: row.project_id }]),
@@ -9576,7 +9587,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       const rows = yield* sql<{ readonly thread_id: ThreadId; readonly title: string }>`
         SELECT thread_id, title
         FROM orchestration_v2_projection_threads
-        WHERE deleted_at IS NULL AND thread_id IN ${sql.in(threadIds)}
+        WHERE ${yield* threadVisibility(sql, "orchestration_v2_projection_threads")} AND deleted_at IS NULL AND thread_id IN ${sql.in(threadIds)}
       `;
       return Object.fromEntries(rows.map((row) => [row.thread_id, row.title]));
     }, Effect.mapError(shellSnapshotReadError));
@@ -9601,7 +9612,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         SELECT t.thread_id, t.project_id,
           json_extract(t.payload_json, '$.settledAt') AS settled_at
         FROM orchestration_v2_projection_threads t
-        WHERE t.deleted_at IS NULL
+        WHERE ${yield* threadVisibility(sql, "t")} AND t.deleted_at IS NULL
           AND t.archived_at IS NULL
           AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
           AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1
@@ -9727,6 +9738,21 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })));
 
+    const guardThreadRead =
+      <Args extends readonly [ThreadId, ...unknown[]], A, E, R>(
+        method: (...args: Args) => Effect.Effect<A, E, R>,
+      ) =>
+      (
+        ...args: Args
+      ): Effect.Effect<A, E | ProjectionStoreReadError | ProjectionStoreThreadNotFoundError, R> =>
+        Effect.gen(function* () {
+          const visible = yield* canReadThread(sql, args[0]).pipe(
+            Effect.mapError((cause) => new ProjectionStoreReadError({ threadId: args[0], cause })),
+          );
+          if (!visible) return yield* new ProjectionStoreThreadNotFoundError({ threadId: args[0] });
+          return yield* method(...args);
+        });
+
     const readOnReader =
       <Args extends ReadonlyArray<unknown>, A, E, R>(
         method: (...args: Args) => Effect.Effect<A, E, R>,
@@ -9755,52 +9781,65 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getThreadLinkMetadata: readOnReader(getThreadLinkMetadata),
       getThreadWorktreePaths: readOnReader(getThreadWorktreePaths),
       getOpenRemoteDelegatedTasks: getOpenRemoteDelegatedTasks.pipe(NodeSqliteClient.readOnly),
-      getThreadProjection: readOnReader(getThreadProjection),
-      getTurnStartContext: readOnReader(getTurnStartContext),
-      getTurnStartHistory: readOnReader(getTurnStartHistory),
+      getThreadProjection: readOnReader(guardThreadRead(getThreadProjection)),
+      getTurnStartContext: readOnReader(guardThreadRead(getTurnStartContext)),
+      getTurnStartHistory: readOnReader(guardThreadRead(getTurnStartHistory)),
       getRuntimeRecoveryProjection: readOnReader(getRuntimeRecoveryProjection),
-      getRunningTurnContext: readOnReader(getRunningTurnContext),
-      getThreadProviderContext: readOnReader(getThreadProviderContext),
-      getRuntimeResponseContext: readOnReader(getRuntimeResponseContext),
-      getCheckpointContext: readOnReader(getCheckpointContext),
-      getCheckpointCaptureContext: readOnReader(getCheckpointCaptureContext),
-      getCheckpointRollbackContext: readOnReader(getCheckpointRollbackContext),
-      getRunMessage: readOnReader(getRunMessage),
-      getDelegatedChildControls: readOnReader(getDelegatedChildControls),
-      getRun: readOnReader(getRun),
+      getRunningTurnContext: readOnReader(guardThreadRead(getRunningTurnContext)),
+      getThreadProviderContext: readOnReader(guardThreadRead(getThreadProviderContext)),
+      getRuntimeResponseContext: readOnReader(guardThreadRead(getRuntimeResponseContext)),
+      getCheckpointContext: readOnReader(guardThreadRead(getCheckpointContext)),
+      getCheckpointCaptureContext: readOnReader(guardThreadRead(getCheckpointCaptureContext)),
+      getCheckpointRollbackContext: readOnReader(guardThreadRead(getCheckpointRollbackContext)),
+      getRunMessage: readOnReader(guardThreadRead(getRunMessage)),
+      getDelegatedChildControls: readOnReader(guardThreadRead(getDelegatedChildControls)),
+      getRun: readOnReader(guardThreadRead(getRun)),
       canStartQueuedRun: readOnReader(canStartQueuedRun),
       getHeldQueuedRuns: readOnReader(getHeldQueuedRuns),
       getPendingNativeUserInputs: readOnReader(getPendingNativeUserInputs),
       hasUnpairedRunInterruptRequest: readOnReader(hasUnpairedRunInterruptRequest),
       hasRunInterruptRequest: readOnReader(hasRunInterruptRequest),
-      getRunProviderRecords: readOnReader(getRunProviderRecords),
-      getRunCardRecords: readOnReader(getRunCardRecords),
+      getRunProviderRecords: readOnReader(guardThreadRead(getRunProviderRecords)),
+      getRunCardRecords: readOnReader(guardThreadRead(getRunCardRecords)),
       isNodeStored: readOnReader(isNodeStored),
-      getMessageCount: readOnReader(getMessageCount),
-      getTranscriptByteFloor: readOnReader(getTranscriptByteFloor),
-      getSubagentCount: readOnReader(getSubagentCount),
-      getRunCount: readOnReader(getRunCount),
-      listAppOwnedChildThreadIds: readOnReader(listAppOwnedChildThreadIds),
+      getMessageCount: readOnReader(guardThreadRead(getMessageCount)),
+      getTranscriptByteFloor: readOnReader(guardThreadRead(getTranscriptByteFloor)),
+      getSubagentCount: readOnReader(guardThreadRead(getSubagentCount)),
+      getRunCount: readOnReader(guardThreadRead(getRunCount)),
+      listAppOwnedChildThreadIds: readOnReader(guardThreadRead(listAppOwnedChildThreadIds)),
       hasPendingDelegatedCompletion: readOnReader(hasPendingDelegatedCompletion),
       getNextTurnItemOrdinal: readOnReader(getNextTurnItemOrdinal),
-      getTurnItem: readOnReader(getTurnItem),
-      getMessagesById: readOnReader(getMessagesById),
+      getTurnItem: readOnReader((input: Parameters<typeof getTurnItem>[0]) =>
+        guardThreadRead((threadId: ThreadId) => getTurnItem({ ...input, threadId }))(
+          input.threadId,
+        ),
+      ),
+      getMessagesById: readOnReader(guardThreadRead(getMessagesById)),
       getThreadRecords: (threadId, fields, filter) =>
-        getThreadRecords(threadId, fields, filter).pipe(NodeSqliteClient.readOnly),
-      getRuntimeRequest: readOnReader(getRuntimeRequest),
-      getPlan: readOnReader(getPlan),
-      getProviderControlContext: readOnReader(getProviderControlContext),
+        guardThreadRead(getThreadRecords)(threadId, fields, filter).pipe(NodeSqliteClient.readOnly),
+      getRuntimeRequest: readOnReader(guardThreadRead(getRuntimeRequest)),
+      getPlan: readOnReader(guardThreadRead(getPlan)),
+      getProviderControlContext: readOnReader(guardThreadRead(getProviderControlContext)),
       getLimitRecoveryCandidates: readOnReader(getLimitRecoveryCandidates),
       getLimitRecoveryWakeAt: readOnReader(getLimitRecoveryWakeAt),
       getRecoveryThreadIds: readOnReader(getRecoveryThreadIds),
       getUnreadableThreadIds: readOnReader(getUnreadableThreadIds),
-      getThreadSnapshot: readOnReader(getThreadSnapshot),
-      getThreadSnapshotWindow: readOnReader(getThreadSnapshotWindow),
-      getTimelinePage: readOnReader(getTimelinePage),
-      getThreadHistoryPage: readOnReader(getThreadHistoryPage),
-      searchThread: readOnReader(searchThread),
-      searchThreadStream,
-      getThreadAttachmentIds: readOnReader(getThreadAttachmentIds),
+      getThreadSnapshot: readOnReader(guardThreadRead(getThreadSnapshot)),
+      getThreadSnapshotWindow: readOnReader(guardThreadRead(getThreadSnapshotWindow)),
+      getTimelinePage: readOnReader(guardThreadRead(getTimelinePage)),
+      getThreadHistoryPage: readOnReader(guardThreadRead(getThreadHistoryPage)),
+      searchThread: readOnReader((input: Parameters<typeof searchThread>[0]) =>
+        guardThreadRead((threadId: ThreadId) => searchThread({ ...input, threadId }))(
+          input.threadId,
+        ),
+      ),
+      searchThreadStream: (input) =>
+        Stream.unwrap(
+          guardThreadRead((threadId: ThreadId) =>
+            Effect.succeed(searchThreadStream({ ...input, threadId })),
+          )(input.threadId),
+        ),
+      getThreadAttachmentIds: readOnReader(guardThreadRead(getThreadAttachmentIds)),
     } satisfies ProjectionStoreV2Shape;
   }),
 );

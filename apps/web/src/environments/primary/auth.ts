@@ -1,3 +1,4 @@
+import { clearStoredEnvironmentCache } from "../../connection/storage";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import type {
   AuthBrowserSessionResult,
@@ -8,7 +9,11 @@ import type {
   AuthSessionId,
   AuthSessionState,
 } from "@t3tools/contracts";
-import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  EnvironmentHttpCommonError,
+  PRIMARY_LOCAL_ENVIRONMENT_ID,
+} from "@t3tools/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -316,8 +321,21 @@ function isTransportError(error: unknown): boolean {
   return HttpClientError.isHttpClientError(error) && error.reason._tag === "TransportError";
 }
 
+async function synchronizeChatAccount(userId: string | undefined): Promise<boolean> {
+  if (userId === undefined) return false;
+  const key = "t3code:primary-chat-account";
+  const previous = localStorage.getItem(key);
+  if (previous === userId) return false;
+  await Effect.runPromise(
+    clearStoredEnvironmentCache(EnvironmentId.make(PRIMARY_LOCAL_ENVIRONMENT_ID)),
+  );
+  localStorage.setItem(key, userId);
+  return previous !== null;
+}
+
 async function bootstrapServerAuth(urlCredential: string | null): Promise<ServerAuthGateState> {
   const currentSession = await fetchSessionState();
+  if (currentSession.authenticated) await synchronizeChatAccount(currentSession.userId);
   if (currentSession.authenticated && !urlCredential) {
     return { status: "authenticated" };
   }
@@ -331,7 +349,8 @@ async function bootstrapServerAuth(urlCredential: string | null): Promise<Server
   }
 
   try {
-    await exchangeBootstrapCredential(bootstrapCredential);
+    const signedIn = await exchangeBootstrapCredential(bootstrapCredential);
+    await synchronizeChatAccount(signedIn.userId);
     await waitForAuthenticatedSessionAfterBootstrap();
     return { status: "authenticated" };
   } catch (error) {
@@ -352,8 +371,10 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
   }
 
   resolvedAuthenticatedGateState = null;
-  await exchangeBootstrapCredential(trimmedCredential);
+  const signedIn = await exchangeBootstrapCredential(trimmedCredential);
+  const accountChanged = await synchronizeChatAccount(signedIn.userId);
   await waitForAuthenticatedSessionAfterBootstrap();
+  if (accountChanged) window.location.replace("/");
   resolvedAuthenticatedGateState = { status: "authenticated" };
   bootstrapPromise = null;
   explicitPairingRequested = false;

@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "./auth/PrivateChats.ts";
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -118,10 +119,11 @@ export const makeCommandGate = Effect.gen(function* () {
       return yield* readinessState;
     }
 
+    const userId = yield* CurrentChatUser;
     const result = yield* Deferred.make<A, E | ServerRuntimeStartupError>();
     yield* Queue.offer(commandQueue, {
       run: Deferred.await(commandReady).pipe(
-        Effect.flatMap(() => effect),
+        Effect.flatMap(() => effect.pipe(Effect.provideService(CurrentChatUser, userId))),
         Effect.exit,
         Effect.flatMap((exit) => settleQueuedCommand(result, exit)),
       ),

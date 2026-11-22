@@ -31,6 +31,7 @@ import { Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { privateChatScopes } from "../auth/PrivateChats.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
@@ -483,12 +484,13 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly ttl: Option.Option<Duration.Duration>;
   readonly label: Option.Option<string>;
+  readonly userId: Option.Option<string>;
 }) {
   return yield* Effect.gen(function* () {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     return yield* environmentAuth.createPairingLink({
-      scopes: input.scopes,
-      subject: "one-time-token",
+      scopes: Option.isSome(input.userId) ? privateChatScopes(input.scopes) : input.scopes,
+      subject: Option.isSome(input.userId) ? `chat-user:${input.userId.value}` : "one-time-token",
       label: Option.getOrElse(input.label, () => "t3 pair"),
       ...(Option.isSome(input.ttl) ? { ttl: input.ttl.value } : {}),
     });
@@ -529,6 +531,13 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
 );
 
 export const pairCommand = Command.make("pair", {
+  userId: Flag.String("user").pipe(
+    Flag.withSchema(Schema.String.check(Schema.isPattern(/^(?!owner$)[a-z][a-z0-9_-]{0,31}$/))),
+    Flag.withDescription(
+      "Pair with a private chat account. Reuse this name to connect another device to the same chats.",
+    ),
+    Flag.optional,
+  ),
   baseDir: baseDirFlag,
   scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
@@ -604,6 +613,7 @@ export const pairCommand = Command.make("pair", {
         scopes: flags.scopes,
         ttl: flags.ttl,
         label: flags.label,
+        userId: flags.userId,
       });
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 

@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import * as Arr from "effect/Array";
 import * as Context from "effect/Context";
 import * as Queue from "effect/Queue";
@@ -989,4 +990,45 @@ it.effect("rejects an update that waited on the lock while its project was delet
       "Update race",
     );
   }).pipe(Effect.provide(layerProjectServiceDependencies)),
+);
+
+it.effect("private members cannot alter or remove shared projects through the service", () =>
+  Effect.gen(function* () {
+    const service = yield* ProjectService.ProjectService;
+    const projectId = ProjectId.make("project:private-shared");
+    yield* service.create({
+      commandId: CommandId.make("private-project:create"),
+      projectId,
+      title: "Shared",
+      workspaceRoot: "/work/private-shared",
+    });
+    yield* Effect.gen(function* () {
+      const update = yield* Effect.flip(
+        service.update({
+          commandId: CommandId.make("private-project:update"),
+          projectId,
+          title: "Changed",
+        }),
+      );
+      assert.strictEqual(update._tag, "ProjectInvalidError");
+      const deletion = yield* Effect.flip(
+        service.delete({
+          commandId: CommandId.make("private-project:delete"),
+          projectId,
+          force: true,
+        }),
+      );
+      assert.strictEqual(deletion._tag, "ProjectInvalidError");
+      const creation = yield* Effect.flip(
+        service.create({
+          commandId: CommandId.make("private-project:member-create"),
+          projectId: ProjectId.make("project:member-created"),
+          title: "Unwanted",
+          workspaceRoot: "/work/member-created",
+        }),
+      );
+      assert.strictEqual(creation._tag, "ProjectInvalidError");
+    }).pipe(Effect.provideService(CurrentChatUser, "alice"));
+    assert.strictEqual(Option.getOrThrow(yield* service.getById(projectId)).title, "Shared");
+  }).pipe(Effect.provide(layerTest)),
 );

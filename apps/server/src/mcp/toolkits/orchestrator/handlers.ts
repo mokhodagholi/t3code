@@ -1,3 +1,4 @@
+import { requireChatOwner } from "../../../auth/PrivateChats.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
@@ -92,6 +93,7 @@ const handlers = {
       () => ({}),
       ({ prompt, schedule, ...input }) =>
         Effect.gen(function* () {
+          yield* requireChatOwner;
           if (prompt === undefined || schedule === undefined) {
             return yield* new OrchestratorMcpFailure({
               code: "invalid_request",
@@ -108,6 +110,7 @@ const handlers = {
     McpToolAccess.writes(
       ({ scheduledTaskId, prompt, title, schedule, enabled, freshSession, bindToCurrentThread }) =>
         Effect.gen(function* () {
+          yield* requireChatOwner;
           if (scheduledTaskId === undefined) return yield* Effect.die("unreachable");
           const scope = yield* McpInvocationContext.McpInvocationContext;
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
@@ -125,6 +128,7 @@ const handlers = {
   ),
   list_scheduled_tasks: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
+      yield* requireChatOwner;
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.listScheduledTasks(scope, input);
@@ -132,6 +136,7 @@ const handlers = {
   ),
   delete_scheduled_task: McpToolAccess.writes((input) =>
     Effect.gen(function* () {
+      yield* requireChatOwner;
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.deleteScheduledTask(scope, input);

@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import {
   CommandId,
   type OrchestrationProjectShell,
@@ -410,6 +411,14 @@ export const make = Effect.gen(function* () {
 
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
+      const userId = yield* CurrentChatUser;
+      if (userId !== undefined && userId !== "owner") {
+        return yield* new ProjectInvalidError({
+          projectId: input.projectId,
+          detail: "Managing shared projects requires the owner's account.",
+        });
+      }
+
       yield* rejectWslSharePath(input.projectId, input.workspaceRoot);
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
@@ -432,6 +441,14 @@ export const make = Effect.gen(function* () {
 
   const update: ProjectService["Service"]["update"] = Effect.fn("ProjectService.update")(
     function* (input) {
+      const userId = yield* CurrentChatUser;
+      if (userId !== undefined && userId !== "owner") {
+        return yield* new ProjectInvalidError({
+          projectId: input.projectId,
+          detail: "Managing shared projects requires the owner's account.",
+        });
+      }
+
       const existing = yield* readRow(input.projectId);
       if (Option.isNone(existing)) {
         return yield* new ProjectNotFoundError({ projectId: input.projectId });
@@ -589,6 +606,14 @@ export const make = Effect.gen(function* () {
 
   const deleteProject: ProjectService["Service"]["delete"] = Effect.fn("ProjectService.delete")(
     function* (input) {
+      const userId = yield* CurrentChatUser;
+      if (userId !== undefined && userId !== "owner") {
+        return yield* new ProjectInvalidError({
+          projectId: input.projectId,
+          detail: "Managing shared projects requires the owner's account.",
+        });
+      }
+
       const { projectId } = input;
       // Read deleted rows so retries replay receipts and other command ids fail as not found.
       const existing = yield* readRow(projectId, { includeDeleted: true });
