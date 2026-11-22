@@ -1,3 +1,4 @@
+import { CurrentChatUser } from "../auth/PrivateChats.ts";
 import * as DocumentText from "../provider/DocumentText.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
@@ -3537,4 +3538,27 @@ it.effect("replays an accepted send after the project disables the instance", ()
       assert.fail(`expected ThreadManagementProviderInstanceDisabledError, got ${fresh._tag}`);
     }
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
+});
+
+it.effect("a private account creates its chat and first message in one transaction", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const result = yield* launches.launch({
+      ...launchInput({
+        command: "command:private-first-message",
+        thread: "thread:private-first-message",
+        message: "First private message",
+      }),
+      generateTitle: true,
+    });
+    const projection = yield* threads.getThreadProjection(result.threadId);
+    assert.strictEqual(projection.thread.ownerUserId, "alice");
+    assert.strictEqual(projection.messages[0]?.text, "First private message");
+    const denied = yield* threads
+      .getThreadProjection(result.threadId)
+      .pipe(Effect.provideService(CurrentChatUser, "bob"), Effect.exit);
+    assert.strictEqual(denied._tag, "Failure");
+  }).pipe(Effect.provideService(CurrentChatUser, "alice"), Effect.provide(harness.layer));
 });

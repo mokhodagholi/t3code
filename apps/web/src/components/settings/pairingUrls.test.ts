@@ -14,6 +14,12 @@ describe("settings pairing URL helpers", () => {
     );
   });
 
+  it("preserves a reverse proxy application path", () => {
+    expect(resolveDesktopPairingUrl("http://172.16.24.36:8765/t3/", "PAIRCODE")).toBe(
+      "http://172.16.24.36:8765/t3/pair#token=PAIRCODE",
+    );
+  });
+
   it("uses hosted pairing URLs for HTTPS endpoints", () => {
     vi.stubEnv("VITE_HOSTED_APP_URL", "https://preview.t3.codes");
 

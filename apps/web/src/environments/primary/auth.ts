@@ -374,7 +374,7 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
   const signedIn = await exchangeBootstrapCredential(trimmedCredential);
   const accountChanged = await synchronizeChatAccount(signedIn.userId);
   await waitForAuthenticatedSessionAfterBootstrap();
-  if (accountChanged) window.location.replace("/");
+  if (accountChanged) window.location.replace(import.meta.env.BASE_URL);
   resolvedAuthenticatedGateState = { status: "authenticated" };
   bootstrapPromise = null;
   explicitPairingRequested = false;
@@ -383,7 +383,10 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
 
 export async function resolveInitialServerAuthGateState(): Promise<ServerAuthGateState> {
   // Preserve explicit grant replacement across the auth-gate reload triggered by token removal.
-  if (window.location.pathname.replace(/\/+$/, "") !== "/pair") {
+  if (
+    window.location.pathname.replace(/\/+$/, "") !==
+    `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/pair`
+  ) {
     explicitPairingRequested = false;
   } else if (peekPairingTokenFromUrl()) {
     explicitPairingRequested = true;

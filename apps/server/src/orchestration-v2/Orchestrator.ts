@@ -7370,8 +7370,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     // keeps that name instead of a title generated from a terse prompt such as "work on this".
     const seedsUntitledThread =
       command.titleSeed !== undefined &&
-      (yield* projectionStore.getMessageCount(command.threadId).pipe(mapDispatchError(command))) ===
-        0 &&
+      ((yield* Ref.get(events)).some(
+        (event) => event.type === "thread.created" && event.threadId === command.threadId,
+      ) ||
+        (yield* projectionStore
+          .getMessageCount(command.threadId)
+          .pipe(mapDispatchError(command))) === 0) &&
       !hasTitleSetBeforeFirstMessage(projection.thread, command.titleSeed);
     if (
       !isNativeMaintenanceCommand(command) &&

@@ -11,6 +11,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import {
   acceptsPrivateNetworkConnection,
+  buildPairingUrl,
   closeNonPrivateNetworkConnections,
   loopbackUrlHostForAddress,
   resolveHeadlessConnectionString,
@@ -157,5 +158,14 @@ describe("closeNonPrivateNetworkConnections", () => {
       expect(warnings).toHaveLength(2);
       expect(Logger.formatLogFmt.log(warnings[1]!)).toMatch(/closedSinceLastLog\W+999/);
     }),
+  );
+});
+
+it("preserves reverse proxy paths in pairing URLs", () => {
+  expect(buildPairingUrl("http://172.16.24.36:8765/t3/", "CODE")).toBe(
+    "http://172.16.24.36:8765/t3/pair#token=CODE",
+  );
+  expect(buildPairingUrl("http://localhost:1112", "CODE")).toBe(
+    "http://localhost:1112/pair#token=CODE",
   );
 });

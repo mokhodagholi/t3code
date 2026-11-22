@@ -453,7 +453,7 @@ export function resolveCurrentOriginPairingUrl(
   credential: string,
   currentHref: string = window.location.href,
 ): string | null {
-  const url = new URL("/pair", currentHref);
+  const url = new URL(`${import.meta.env.BASE_URL.replace(/\/+$/, "")}/pair`, currentHref);
   // The packaged desktop window loads from t3code://app, which no other device can open.
   if ((url.protocol !== "http:" && url.protocol !== "https:") || isLoopbackHostname(url.hostname)) {
     return null;

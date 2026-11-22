@@ -189,6 +189,17 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
       readonly qrShareable: boolean;
     }> = [];
     if (!credential) return options;
+    if (servedByEnvironment && currentOriginPairingUrl !== null) {
+      const current = new URL(currentOriginPairingUrl);
+      options.push({
+        id: "current-browser",
+        preferenceKey: "current-browser",
+        label: current.host,
+        url: currentOriginPairingUrl,
+        detail: current.pathname,
+        qrShareable: true,
+      });
+    }
     for (const endpoint of endpoints) {
       if (endpoint.status === "unavailable") {
         continue;
@@ -206,6 +217,7 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
     return options;
   })();
   const shareablePairingUrl =
+    (servedByEnvironment ? currentOriginPairingUrl : null) ??
     endpointPairingUrl ??
     (credential && endpointUrl != null && endpointUrl !== ""
       ? (hostedPairingUrl ?? resolveDesktopPairingUrl(endpointUrl, credential))
@@ -264,7 +276,8 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
   const primaryLabel = pairingLink.label ?? gt("Pairing link");
   const selectedQrOption = selectQrEndpointOption(
     endpointCopyOptions,
-    qrEndpointId,
+    qrEndpointId ??
+      (servedByEnvironment && currentOriginPairingUrl !== null ? "current-browser" : null),
     defaultEndpointKey,
   );
   const qrPairingUrl = selectedQrOption?.url ?? shareablePairingUrl;

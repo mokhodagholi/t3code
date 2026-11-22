@@ -5,6 +5,7 @@ import {
   AuthStandardClientScopes,
 } from "@t3tools/contracts";
 import * as Console from "effect/Console";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -120,9 +121,11 @@ const pairingCreateCommand = Command.make("create", {
             ...(Option.isSome(flags.ttl) ? { ttl: flags.ttl.value } : {}),
             ...(Option.isSome(flags.label) ? { label: flags.label.value } : {}),
           });
+          const publicUrl = yield* Config.String("T3CODE_PUBLIC_URL").pipe(Config.withDefault(""));
+          const baseUrl = Option.isSome(flags.baseUrl) ? flags.baseUrl.value.href : publicUrl;
           const output = formatIssuedPairingCredential(issued, {
             json: flags.json,
-            ...(Option.isSome(flags.baseUrl) ? { baseUrl: flags.baseUrl.value.href } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
           });
           yield* Console.log(output);
         }),

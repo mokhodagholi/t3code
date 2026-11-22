@@ -55,6 +55,17 @@ describe("parseManualDesktopSshTarget", () => {
 });
 
 describe("resolveCurrentOriginPairingUrl", () => {
+  it("keeps the public nginx origin and the build's base path", () => {
+    vi.stubEnv("BASE_URL", "/t3/");
+    try {
+      expect(
+        resolveCurrentOriginPairingUrl("abc", "http://172.16.24.36:8765/t3/settings/connections"),
+      ).toBe("http://172.16.24.36:8765/t3/pair#token=abc");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.each([
     ["t3code://app/settings/connections", null],
     ["http://127.0.0.1:3774/settings", null],

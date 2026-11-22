@@ -12,6 +12,11 @@ lowercase letters, digits, underscores, and hyphens, up to 32 characters. `owner
 is reserved. Use the same account name when pairing another device with that
 person's existing chats. Pairing links work once; each device needs a fresh link.
 
+When T3 is served through a reverse proxy under a path such as `/t3/`,
+create links from that address; copied links and QR codes keep the public origin
+and application path. Set `T3CODE_PUBLIC_URL` to the complete application URL
+for pairing links printed by the server or CLI.
+
 From the server terminal, an owner can also issue a link with:
 
 ```sh
