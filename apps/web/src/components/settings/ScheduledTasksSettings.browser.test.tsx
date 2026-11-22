@@ -57,6 +57,8 @@ const threadFamilyRead = {
 
 const state = vi.hoisted(() => ({
   connected: true,
+  canRead: true,
+  query: vi.fn(),
   tasksLoaded: true,
   secondary: false,
   remove: vi.fn(),
@@ -66,6 +68,8 @@ const permissions = new Map<string, Atom.Writable<boolean>>();
 
 function setup() {
   state.connected = true;
+  state.canRead = true;
+  state.query.mockReset();
   state.tasksLoaded = true;
   state.remove.mockReset().mockReturnValue(Effect.succeed({ id: task.id }));
   state.secondary = false;
@@ -79,10 +83,17 @@ function secondaryEnvironment() {
   return { ...environment(), environmentId: secondaryId, label: "Secondary" };
 }
 
-vi.mock(import("../../state/session"), async (original) => ({
-  ...(await original()),
-  readEnvironmentScope: () => true,
-}));
+vi.mock(import("../../state/session"), async (original) => {
+  const { Atom } = await import("effect/reactivity");
+  const sessions = Atom.make([]);
+  return {
+    ...(await original()),
+    readEnvironmentScope: () => state.canRead,
+    useEnvironmentScope: () => state.canRead,
+    sessionHasScope: () => state.canRead,
+    environmentSessionStatesAtom: (() => sessions) as never,
+  };
+});
 
 function environment() {
   return {
@@ -144,15 +155,18 @@ vi.mock(import("../../state/threads"), async (original) => {
 // Mirrors the real query: a null request (disconnected environment) has no data.
 vi.mock(import("../../state/query"), async (original) => ({
   ...(await original()),
-  useEnvironmentQuery: ((request: unknown) => ({
-    data:
-      request === null || request === threadFamilyRead
-        ? request
-        : { tasks: state.tasksLoaded ? [task] : [] },
-    error: null,
-    isPending: false,
-    refresh: vi.fn(),
-  })) as never,
+  useEnvironmentQuery: ((request: unknown) => {
+    state.query(request);
+    return {
+      data:
+        request === null || request === threadFamilyRead
+          ? request
+          : { tasks: state.tasksLoaded ? [task] : [] },
+      error: null,
+      isPending: false,
+      refresh: vi.fn(),
+    };
+  }) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
@@ -169,6 +183,24 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
 }));
 
 describe("ScheduledTasksSettings", () => {
+  it("shows an owner notice without fetching tasks for a private account", async () => {
+    setup();
+    state.canRead = false;
+    const registry = AtomRegistry.make();
+    using _registry = { [Symbol.dispose]: () => registry.dispose() };
+    registry.set(permissions.get(environmentId)!, false);
+    await using screen = await render(
+      <RegistryContext.Provider value={registry}>
+        <ScheduledTasksSettings />
+      </RegistryContext.Provider>,
+    );
+    await expect
+      .element(screen.getByText("Automations are managed by the owner of this environment."))
+      .toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "New task" })).toBeDisabled();
+    expect(state.query.mock.calls.every(([request]) => request === null)).toBe(true);
+  });
+
   it("only deletes a scheduled task after confirmation, including after cancelling", async () => {
     setup();
     await using screen = await render(

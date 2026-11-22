@@ -1,3 +1,4 @@
+import { AuthAccessWriteScope } from "@t3tools/contracts";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
 import { useAtomValue } from "@effect/atom-react";
@@ -85,11 +86,16 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { WorktreeBaseBranchPicker } from "../WorktreeBaseBranchPicker";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ConnectionStatusDot, connectionPhaseDotClassName } from "../ConnectionStatusDot";
-import { AuthOrchestrationOperateScope, clampManagedRuntimeMode } from "@t3tools/contracts";
+import { clampManagedRuntimeMode } from "@t3tools/contracts";
 import { resolvePastedPath } from "@t3tools/shared/path";
 import { useManagedPolicy } from "~/state/managedPolicy";
 import { ManagedNotice } from "../ManagedPolicy";
-import { readEnvironmentScope } from "~/state/session";
+import {
+  readEnvironmentScope,
+  useEnvironmentScope,
+  environmentSessionStatesAtom,
+  sessionHasScope,
+} from "~/state/session";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { EnvironmentRow, useEnvironmentTransportLabel } from "./EnvironmentRow";
 import { SettingsGroup } from "./SettingsGroup";
@@ -425,8 +431,12 @@ export function ScheduledTasksSettings(target: {
       entry.connection.phase === "connected" &&
       entry.serverConfig !== null,
   );
+  const canReadLinked = useEnvironmentScope(linkedEnvironmentId ?? null, AuthAccessWriteScope);
   const linkedTasksQuery = useEnvironmentQuery(
-    target.taskId !== undefined && linkedEnvironmentId !== undefined && linkedEnvironmentConnected
+    target.taskId !== undefined &&
+      linkedEnvironmentId !== undefined &&
+      linkedEnvironmentConnected &&
+      canReadLinked
       ? serverEnvironment.scheduledTasksLive({ environmentId: linkedEnvironmentId, input: {} })
       : null,
   );
@@ -559,8 +569,15 @@ function ScheduledTaskEnvironmentList({
   const messages = useMessages();
   const gt = useGT();
   const { scope, environments } = useSettingsScope();
-  const connectedIds = environments.flatMap((environment) =>
-    environment.connection.phase === "connected" && environment.serverConfig !== null
+  const sessions = useAtomValue(
+    environmentSessionStatesAtom(
+      environmentIdsKey(environments.map((entry) => entry.environmentId)),
+    ),
+  );
+  const connectedIds = environments.flatMap((environment, index) =>
+    environment.connection.phase === "connected" &&
+    environment.serverConfig !== null &&
+    sessionHasScope(sessions[index]!, AuthAccessWriteScope)
       ? [environment.environmentId]
       : [],
   );
@@ -571,6 +588,7 @@ function ScheduledTaskEnvironmentList({
     const data = query === null ? null : AsyncResult.getOrElse(query, () => null);
     return {
       environment,
+      allowed: sessionHasScope(sessions[environments.indexOf(environment)]!, AuthAccessWriteScope),
       connected: index >= 0,
       timeZone: data?.timeZone,
       tasks: data?.tasks.filter((task) =>
@@ -590,7 +608,8 @@ function ScheduledTaskEnvironmentList({
     "Could not load scheduled tasks:": [],
     "No tasks on": [],
   };
-  for (const { environment, connected, tasks, error } of states) {
+  for (const { environment, allowed, connected, tasks, error } of states) {
+    if (!allowed) continue;
     const label = settingsScopeEnvironmentLabel(environment, environments);
     if (!connected) {
       summaries["Not connected:"]!.push(
@@ -607,6 +626,16 @@ function ScheduledTaskEnvironmentList({
 
   return (
     <SettingsGroup>
+      {states
+        .filter((state) => !state.allowed)
+        .map(({ environment }) => (
+          <SettingsRow
+            key={environment.environmentId}
+            title={gt("Automations are managed by the owner of this environment.")}
+            description={environment.label}
+          />
+        ))}
+
       {populated.map(({ environment, tasks, timeZone }) => {
         const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
         return (
@@ -709,8 +738,9 @@ function ScheduledTaskEnvironmentSection({
   const { scope } = useSettingsScope();
   const connected =
     environment.connection.phase === "connected" && environment.serverConfig !== null;
+  const canRead = useEnvironmentScope(environment.environmentId, AuthAccessWriteScope);
   const tasksQuery = useEnvironmentQuery(
-    connected
+    connected && canRead
       ? serverEnvironment.scheduledTasksLive({
           environmentId: environment.environmentId,
           input: {},
@@ -733,7 +763,9 @@ function ScheduledTaskEnvironmentSection({
         />
       }
     >
-      {!connected ? (
+      {!canRead && connected ? (
+        <SettingsRow title={gt("Automations are managed by the owner of this environment.")} />
+      ) : !connected ? (
         <SettingsRow
           title={gt("Environment disconnected")}
           description={gt("Reconnect {label} to view its scheduled tasks.", {
@@ -807,7 +839,7 @@ function ScheduledTaskRow({
     label: "scheduled task delete",
   });
   const act = async (action: "toggle" | "run" | "delete") => {
-    if (busy || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
+    if (busy || !readEnvironmentScope(environmentId, AuthAccessWriteScope)) return;
     if (action === "delete") {
       const message = `${gt('Delete "{title}"?', { title: task.title })}\n${gt("This cannot be undone.")}`;
       const confirmed =
@@ -1479,8 +1511,11 @@ function ScheduledTaskEditorForm({
     environment?.serverConfig?.environment.capabilities.scheduledTaskThreadModes === true;
   const connected =
     environment?.connection.phase === "connected" && environment.serverConfig !== null;
+  const canRead = useEnvironmentScope(environmentId, AuthAccessWriteScope);
   const tasksQuery = useEnvironmentQuery(
-    connected ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null,
+    connected && canRead
+      ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} })
+      : null,
     messages,
   );
   const allProjects = useProjects();
@@ -1590,7 +1625,7 @@ function ScheduledTaskEditorForm({
 
   const submit = async () => {
     if (
-      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope) ||
+      !readEnvironmentScope(environmentId, AuthAccessWriteScope) ||
       submissionPending.current ||
       saving ||
       editingTaskMissing ||

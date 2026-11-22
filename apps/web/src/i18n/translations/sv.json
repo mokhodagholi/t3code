@@ -9487,6 +9487,7 @@
   "697cd417df629ef2": "Test för filter {number}",
   "ca29425d16740c41": "Värde för filter {number}",
   "503906c940524dbb": "Urvalet är inte tillgängligt",
+  "ded14734683d88f4": "Automatiseringar hanteras av ägaren till den här miljön.",
   "fe56ee952e3b31a8": "Uppgiften är inte tillgänglig",
   "8ef35397b5026884": "Uppgiften har tagits bort eller tillhör ett annat projekt. Kontrollera projektfiltret.",
   "1517f4c831b1c8aa": "Inga schemalagda uppgifter",

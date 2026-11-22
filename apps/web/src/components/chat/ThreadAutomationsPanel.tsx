@@ -7,7 +7,7 @@ import type { MessageResolver } from "~/i18n/messages";
 import { CalendarClockIcon, PencilIcon, PlayIcon, Settings2Icon } from "lucide-react";
 import { useState } from "react";
 import {
-  AuthOrchestrationOperateScope,
+  AuthAccessWriteScope,
   type EnvironmentId,
   type ScheduledTask,
   type ThreadId,
@@ -25,7 +25,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-import { readEnvironmentScope } from "../../state/session";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -74,11 +74,14 @@ export function ThreadAutomationsPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }) {
+  const canRead = useEnvironmentScope(props.environmentId, AuthAccessWriteScope);
   const canOperate = useAtomValue(
     serverEnvironment.runScheduledTaskNow.permissionAtom(props.environmentId),
   );
   const tasksQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTasksLive({ environmentId: props.environmentId, input: {} }),
+    canRead
+      ? serverEnvironment.scheduledTasksLive({ environmentId: props.environmentId, input: {} })
+      : null,
     useMessages(),
   );
   const setTaskEnabled = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
@@ -96,7 +99,7 @@ export function ThreadAutomationsPanel(props: {
     (task) => task.threadId === props.threadId,
   );
 
-  if (tasksQuery.error === null && boundTasks.length === 0) return null;
+  if (!canRead || (tasksQuery.error === null && boundTasks.length === 0)) return null;
 
   const reportFailure = (title: string, error: unknown) => {
     toastManager.add(
@@ -109,10 +112,7 @@ export function ThreadAutomationsPanel(props: {
   };
 
   const toggleEnabled = async (task: ScheduledTask, enabled: boolean) => {
-    if (
-      busyTaskId !== null ||
-      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope)
-    )
+    if (busyTaskId !== null || !readEnvironmentScope(props.environmentId, AuthAccessWriteScope))
       return;
     setBusyTaskId(task.id);
     const result = await setTaskEnabled({
@@ -126,10 +126,7 @@ export function ThreadAutomationsPanel(props: {
   };
 
   const runNow = async (task: ScheduledTask) => {
-    if (
-      busyTaskId !== null ||
-      !readEnvironmentScope(props.environmentId, AuthOrchestrationOperateScope)
-    )
+    if (busyTaskId !== null || !readEnvironmentScope(props.environmentId, AuthAccessWriteScope))
       return;
     setBusyTaskId(task.id);
     const result = await runTaskNow({

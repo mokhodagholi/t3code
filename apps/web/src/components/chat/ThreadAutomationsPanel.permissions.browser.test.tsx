@@ -1,10 +1,17 @@
 import { EnvironmentId, ThreadId, ScheduledTaskId, type ScheduledTask } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 
-const state = vi.hoisted(() => ({ allowed: true, toggle: vi.fn(), run: vi.fn() }));
+const state = vi.hoisted(() => ({
+  allowed: true,
+  canRead: true,
+  query: vi.fn(),
+  toggle: vi.fn(),
+  run: vi.fn(),
+}));
 vi.mock(import("../../state/session"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useEnvironmentScope: () => state.allowed,
+  useEnvironmentScope: (_environmentId: unknown, scope: string) =>
+    scope === "access:write" ? state.canRead : state.allowed,
   readEnvironmentScope: () => state.allowed,
 }));
 vi.mock(import("@effect/atom-react"), async (importOriginal) => ({
@@ -25,7 +32,15 @@ vi.mock(import("../../state/use-atom-command"), async (importOriginal) => {
 });
 vi.mock(import("../../state/query"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useEnvironmentQuery: (() => ({ data: { tasks: [task] }, error: null })) as never,
+  useEnvironmentQuery: ((input: unknown) => {
+    state.query(input);
+    return {
+      data: state.canRead ? { tasks: [task] } : null,
+      error: state.canRead
+        ? null
+        : "The authenticated token is missing required scope: access:write.",
+    };
+  }) as never,
 }));
 
 import { act, render as renderUi } from "../../../test/render";
@@ -43,6 +58,8 @@ const task = {
 
 async function setup() {
   state.allowed = true;
+  state.canRead = true;
+  state.query.mockReset();
   state.toggle.mockReset().mockResolvedValue({ _tag: "Success" });
   state.run.mockReset().mockResolvedValue({ _tag: "Success" });
 
@@ -62,7 +79,12 @@ async function setup() {
     container.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
 
   const environment = stack.move();
-  return { renderPanel, byLabel, [Symbol.asyncDispose]: () => environment.disposeAsync() };
+  return {
+    renderPanel,
+    byLabel,
+    container,
+    [Symbol.asyncDispose]: () => environment.disposeAsync(),
+  };
 }
 it.each([true, false])("runs scheduled work only with task permission (%s)", async (allowed) => {
   await using fixture = await setup();
@@ -84,4 +106,13 @@ it("rejects a retained toggle after task permission is revoked", async () => {
   state.allowed = true;
   await act(async () => byLabel("Pause Daily review").click());
   expect(state.toggle).toHaveBeenCalledOnce();
+});
+
+it("does not subscribe to or show automations without owner access", async () => {
+  await using fixture = await setup();
+  state.canRead = false;
+  await fixture.renderPanel();
+  expect(state.query).toHaveBeenCalledWith(null);
+  expect(fixture.container.querySelector("[data-thread-automations-panel]")).toBeNull();
+  expect(fixture.container.textContent).not.toContain("access:write");
 });

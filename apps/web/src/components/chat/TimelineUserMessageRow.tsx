@@ -1,3 +1,5 @@
+import { AuthAccessWriteScope } from "@t3tools/contracts";
+import { useEnvironmentScope } from "../../state/session";
 import { copySnapshot as copySnapshotToClipboard } from "./copySnapshot";
 import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
@@ -395,8 +397,11 @@ export function useScheduledTaskTitle(
   environmentId: EnvironmentId,
   scheduledTaskId: ScheduledTaskId | undefined,
 ): string | undefined {
+  const canRead = useEnvironmentScope(environmentId, AuthAccessWriteScope);
   const tasksQuery = useEnvironmentQuery(
-    scheduledTaskId ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} }) : null,
+    scheduledTaskId && canRead
+      ? serverEnvironment.scheduledTasksLive({ environmentId, input: {} })
+      : null,
   );
   return tasksQuery.data?.tasks.find((task) => task.id === scheduledTaskId)?.title;
 }

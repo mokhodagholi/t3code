@@ -72,11 +72,11 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   // Starts an agent session on this environment that can read its logs and database.
   [WS_METHODS.serverPrepareTriage]: AuthOrchestrationOperateScope,
-  [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
-  [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
-  [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
-  [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
-  [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+  [WS_METHODS.scheduledTasksUpsert]: AuthAccessWriteScope,
+  [WS_METHODS.scheduledTasksSetEnabled]: AuthAccessWriteScope,
+  [WS_METHODS.scheduledTasksDelete]: AuthAccessWriteScope,
+  [WS_METHODS.scheduledTasksRunNow]: AuthAccessWriteScope,
+  [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthAccessWriteScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
   // Force stop kills agent processes, as Stop on a terminal does.
   [ORCHESTRATION_V2_WS_METHODS.forceStopThread]: AuthOrchestrationOperateScope,
