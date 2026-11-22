@@ -10,7 +10,6 @@ import { useDebouncedValue } from "../../state/queries";
 import { useTheme } from "../../hooks/useTheme";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "../../pierre-tree-theme";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 
 export function PrivateWorkspaceDirectoryPicker({
@@ -70,9 +69,18 @@ export function PrivateWorkspaceDirectoryPicker({
         selected === undefined
           ? undefined
           : treePathByModelPath.get(selected.endsWith("/") ? selected : `${selected}/`);
-      if (directory !== undefined) toggle(directory, true);
+      if (directory !== undefined) toggle(directory, !value.includes(directory));
     },
     paths: [],
+    renderRowDecoration: ({ row }) => {
+      if (row.kind !== "directory") return null;
+      const directory = treePathByModelPath.get(row.path);
+      if (directory === undefined) return null;
+      return {
+        text: value.includes(directory) ? "✓" : "☐",
+        title: value.includes(directory) ? gt("Allowed") : gt("Not allowed"),
+      };
+    },
     search: false,
     unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
   });
@@ -89,7 +97,7 @@ export function PrivateWorkspaceDirectoryPicker({
         <T>Allowed directories</T>
       </h3>
       <p className="text-xs text-muted-foreground">
-        <T>Choose the owner's folders this private link can use. Subfolders are included.</T>
+        <T>Click folder rows to toggle access. Subfolders are included.</T>
       </p>
       <Input
         aria-label={gt("Browse owner directories")}
@@ -129,33 +137,9 @@ export function PrivateWorkspaceDirectoryPicker({
         </p>
       ) : null}
       <div className="h-48 overflow-y-auto rounded-md border border-input p-1">
-        {directories.length > 0 ? (
-          <div className="mt-1 space-y-0.5 border-t border-border pt-1">
-            {directories.map((directory) => (
-              <label
-                key={directory}
-                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted"
-              >
-                <Checkbox
-                  checked={value.includes(directory)}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => toggle(directory, checked === true)}
-                  aria-label={directory}
-                />
-                <span className="truncate" title={directory}>
-                  {directory}
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <p className="px-1.5 py-2 text-xs text-muted-foreground">
-            <T>No owner directories are available for this environment.</T>
-          </p>
-        )}
         <FileTree
           model={model}
-          aria-label={gt("Owner directory tree")}
+          aria-label={gt("Owner directories")}
           className="block min-h-20"
           style={pierreTreeStyle(resolvedTheme)}
         />
