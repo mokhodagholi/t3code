@@ -35,7 +35,11 @@ export function PrivateWorkspaceDirectoryPicker({
 }) {
   const gt = useGT();
   const { resolvedTheme } = useTheme();
-  const projects = useProjects().filter((project) => project.environmentId === environmentId);
+  const allProjects = useProjects();
+  const projects = useMemo(
+    () => allProjects.filter((project) => project.environmentId === environmentId),
+    [allProjects, environmentId],
+  );
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [path, setPath] = useState("~/");
   const [discoveredDirectories, setDiscoveredDirectories] = useState<ReadonlyArray<string>>([]);
@@ -54,6 +58,11 @@ export function PrivateWorkspaceDirectoryPicker({
       : null,
     useMessages(),
   );
+  const projectRoots = useMemo(
+    () => [...new Set(projects.map((project) => project.workspaceRoot).filter(Boolean))],
+    [projects],
+  );
+  const projectRootsKey = projectRoots.join("\0");
   const directories = [
     ...new Set([
       ...value,
@@ -65,20 +74,14 @@ export function PrivateWorkspaceDirectoryPicker({
   useEffect(() => {
     if (!canBrowse) return;
     let cancelled = false;
-    const roots = [
-      ...new Set([
-        ...projects.map((project) => project.workspaceRoot),
-        ...value,
-        ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
-      ]),
-    ].filter(Boolean);
+    const roots = projectRoots;
     void (async () => {
       const seen = new Set<string>();
       const queue = roots.map((root) => ({ path: root.replace(/\/+$/u, ""), depth: 0 }));
       const found: string[] = [];
-      while (queue.length > 0 && seen.size < 512 && !cancelled) {
+      while (queue.length > 0 && seen.size < 128 && !cancelled) {
         const current = queue.shift();
-        if (!current || seen.has(current.path) || current.depth >= 8) continue;
+        if (!current || seen.has(current.path) || current.depth >= 6) continue;
         seen.add(current.path);
         const result = await runBrowseRef.current({
           environmentId,
@@ -97,7 +100,7 @@ export function PrivateWorkspaceDirectoryPicker({
     return () => {
       cancelled = true;
     };
-  }, [canBrowse, environmentId, projects, query.data?.entries, value]);
+  }, [canBrowse, environmentId, projectRoots, projectRootsKey]);
   const toggle = (directory: string, checked: boolean) =>
     onChange(
       checked
