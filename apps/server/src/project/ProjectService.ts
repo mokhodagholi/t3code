@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
+import { filterWorkspaceProjects } from "../auth/PrivateWorkspaces.ts";
 import { withCommandMetrics } from "../observability/Metrics.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -369,7 +370,9 @@ export const make = Effect.gen(function* () {
   const getById: ProjectService["Service"]["getById"] = Effect.fn("ProjectService.getById")(
     function* (projectId, options) {
       const row = yield* readRow(projectId, options);
-      return Option.isNone(row) ? Option.none() : Option.some(yield* hydrate(row.value));
+      if (Option.isNone(row)) return Option.none();
+      const visible = yield* filterWorkspaceProjects([row.value]);
+      return visible.length === 0 ? Option.none() : Option.some(yield* hydrate(row.value));
     },
   );
 
@@ -676,7 +679,8 @@ export const make = Effect.gen(function* () {
 
   const snapshot = Effect.gen(function* () {
     const rows = yield* listRows;
-    const hydrated = yield* Effect.forEach(rows, hydrate, { concurrency: 8 });
+    const visibleRows = yield* filterWorkspaceProjects(rows);
+    const hydrated = yield* Effect.forEach(visibleRows, hydrate, { concurrency: 8 });
     return {
       projects: hydrated,
       updatedAt: DateTime.formatIso(yield* DateTime.now),

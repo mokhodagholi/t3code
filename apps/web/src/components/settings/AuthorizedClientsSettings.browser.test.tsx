@@ -1,8 +1,10 @@
 import {
   EnvironmentId,
+  AuthStandardClientScopes,
   managedCapabilityDenial,
   type ManagedPolicySummary,
 } from "@t3tools/contracts";
+import { userEvent, page } from "vite-plus/test/browser";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import "~/index.css";
@@ -15,6 +17,7 @@ const serviceId = EnvironmentId.make("service");
 const state = vi.hoisted(() => ({
   primaryEnvironmentId: null as string | null,
   policies: new Map<string, unknown>(),
+  create: vi.fn(),
 }));
 
 vi.mock(import("../../state/environments"), async (original) => ({
@@ -23,6 +26,15 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
+  useProjects: (() => [
+    { environmentId: serviceId, id: "a", title: "Owner project", workspaceRoot: "/work/owner" },
+    {
+      environmentId: localId,
+      id: "b",
+      title: "Other machine",
+      workspaceRoot: "/work/other-machine",
+    },
+  ]) as never,
   useServerConfigs: (() =>
     new Map(
       [...state.policies].map(([environmentId, managedPolicy]) => [
@@ -33,7 +45,23 @@ vi.mock(import("../../state/entities"), async (original) => ({
 }));
 vi.mock(import("../../state/use-atom-command"), async (original) => ({
   ...(await original()),
-  useAtomCommand: (() => vi.fn()) as never,
+  useAtomCommand: (() => state.create) as never,
+}));
+
+vi.mock(import("../../state/session"), async (original) => ({
+  ...(await original()),
+  useEnvironmentScope: () => true,
+  readEnvironmentScope: () => true,
+}));
+vi.mock(import("../../state/query"), async (original) => ({
+  ...(await original()),
+  useEnvironmentQuery: (() => ({
+    data: {
+      parentPath: "/home/owner",
+      entries: [{ name: "additional", fullPath: "/home/owner/additional" }],
+    },
+    error: null,
+  })) as never,
 }));
 
 const remoteClientsOff: ManagedPolicySummary = {
@@ -43,11 +71,17 @@ const remoteClientsOff: ManagedPolicySummary = {
 };
 
 function setup(policies: ReadonlyArray<readonly [EnvironmentId, ManagedPolicySummary]>) {
+  state.create
+    .mockReset()
+    .mockResolvedValue({ _tag: "Success", value: { credential: "test-only", id: "test-only" } });
   state.primaryEnvironmentId = localId;
   state.policies = new Map(policies);
 }
 
-const renderHeader = (environmentId: EnvironmentId) =>
+const renderHeader = (
+  environmentId: EnvironmentId,
+  scopes = [] as readonly (typeof AuthStandardClientScopes)[number][],
+) =>
   render(
     <AuthorizedClientsHeaderAction
       environmentId={environmentId}
@@ -55,7 +89,7 @@ const renderHeader = (environmentId: EnvironmentId) =>
       clientSessions={null}
       isRevokingOtherClients={false}
       onRevokeOtherClients={() => {}}
-      delegatableScopes={[]}
+      delegatableScopes={scopes}
     />,
   );
 
@@ -77,4 +111,30 @@ describe("AuthorizedClientsHeaderAction", () => {
     await expect.element(screen.getByRole("button", { name: "Create link" })).toBeEnabled();
     expect(screen.getByRole("group", { name: denial }).query()).toBeNull();
   });
+});
+
+it("requires selected owner directories and includes them in the private link", async () => {
+  setup([]);
+  await using screen = await renderHeader(serviceId, AuthStandardClientScopes);
+  await userEvent.click(screen.getByRole("button", { name: "Create link", exact: true }));
+  await userEvent.fill(
+    page.getByRole("textbox", { name: "Private chat account (optional)", exact: true }),
+    "alice",
+  );
+  const dialog = page.getByRole("dialog");
+  await expect
+    .element(dialog.getByRole("button", { name: "Create link", exact: true }))
+    .toBeDisabled();
+  await expect.element(dialog.getByText("/work/owner", { exact: true })).toBeVisible();
+  await expect
+    .element(dialog.getByText("/work/other-machine", { exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.click(dialog.getByRole("checkbox", { name: "/work/owner", exact: true }));
+  await userEvent.click(dialog.getByRole("button", { name: "Create link", exact: true }));
+  expect(state.create).toHaveBeenCalledWith(
+    expect.objectContaining({
+      environmentId: serviceId,
+      input: expect.objectContaining({ userId: "alice", allowedDirectories: ["/work/owner"] }),
+    }),
+  );
 });

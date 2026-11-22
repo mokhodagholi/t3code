@@ -28,6 +28,11 @@ import {
 import { isLocalLoopbackHost } from "@t3tools/shared/hostClassification";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import * as Context from "effect/Context";
+import {
+  normalizeWorkspaceDirectories,
+  privateWorkspaceSubject,
+  workspaceSessionFields,
+} from "./PrivateWorkspaces.ts";
 import { chatUserForSubject, privateChatScopes } from "./PrivateChats.ts";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
@@ -923,6 +928,7 @@ export const make = Effect.gen(function* () {
           ({
             authenticated: true,
             userId: chatUserForSubject(session.subject),
+            ...workspaceSessionFields(session.subject),
             auth: descriptor,
             ...authScopeResponse(session.scopes),
             sessionMethod: session.method,
@@ -952,6 +958,7 @@ export const make = Effect.gen(function* () {
                   response: {
                     authenticated: true,
                     userId: chatUserForSubject(session.subject),
+                    ...workspaceSessionFields(session.subject),
                     ...authScopeResponse(session.scopes),
                     sessionMethod: session.method,
                     expiresAt: DateTime.toUtc(DateTime.add(now, { days: 30 })),
@@ -1382,18 +1389,35 @@ export const make = Effect.gen(function* () {
       Effect.withSpan("EnvironmentAuth.revokeOtherSessionsExcept"),
     );
 
-  const issuePairingCredential: EnvironmentAuth["Service"]["issuePairingCredential"] = (input) =>
-    createPairingLink({
+  const issuePairingCredential: EnvironmentAuth["Service"]["issuePairingCredential"] = Effect.fn(
+    "EnvironmentAuth.issuePairingCredential",
+  )(function* (input) {
+    const directories =
+      input?.allowedDirectories === undefined
+        ? undefined
+        : yield* Effect.tryPromise({
+            try: () => normalizeWorkspaceDirectories(input.allowedDirectories!),
+            catch: (cause) => new ServerAuthPairingLinkCreationError({ cause }),
+          });
+    if (directories !== undefined && (input?.userId === undefined || input.access !== undefined))
+      return yield* new ServerAuthPairingLinkCreationError({
+        cause: "Directory grants require a private chat account.",
+      });
+    return yield* createPairingLink({
       scopes: input?.access
         ? mcpClientScopes(input.access)
         : input?.userId !== undefined
-          ? privateChatScopes(input.scopes ?? AuthStandardClientScopes)
+          ? privateChatScopes(input.scopes ?? AuthStandardClientScopes).filter(
+              (scope) =>
+                directories === undefined ||
+                !["terminal:read", "terminal:operate", "preview:operate"].includes(scope),
+            )
           : (input?.scopes ?? AuthStandardClientScopes),
       subject:
         input?.purpose === "peer-link" && input.access
           ? `${PEER_LINK_PAIRING_SUBJECT_PREFIX}${input.access}`
           : input?.userId !== undefined
-            ? `chat-user:${input.userId}`
+            ? privateWorkspaceSubject(input.userId, directories)
             : "one-time-token",
       ...(input?.label ? { label: input.label } : {}),
       ...(input?.access && input.purpose !== "peer-link" ? { mcpApproval: input.access } : {}),
@@ -1405,6 +1429,7 @@ export const make = Effect.gen(function* () {
       })),
       Effect.withSpan("EnvironmentAuth.issuePairingCredential"),
     );
+  });
 
   const issueStartupPairingCredential: EnvironmentAuth["Service"]["issueStartupPairingCredential"] =
     () => {

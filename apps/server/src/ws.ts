@@ -1,4 +1,8 @@
 import {
+  CurrentWorkspaceDirectories,
+  workspaceDirectoriesForSubject,
+} from "./auth/PrivateWorkspaces.ts";
+import {
   authorizeThreadReferences,
   canReadThread,
   chatUserForSubject,
@@ -1462,9 +1466,9 @@ export const layerWsRpc = (
         | DocumentText.DocumentText
       >();
       const privateIntakeContext = Context.add(
-        intakeContext,
-        CurrentChatUser,
-        chatUserForSubject(currentSession.subject),
+        Context.add(intakeContext, CurrentChatUser, chatUserForSubject(currentSession.subject)),
+        CurrentWorkspaceDirectories,
+        workspaceDirectoriesForSubject(currentSession.subject),
       );
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const projectStore = yield* ProjectStore.ProjectStoreV2;
@@ -2944,12 +2948,30 @@ export const layerWsRpc = (
                 Effect.ignoreCause({ log: true }),
               ),
           }),
-        [WS_METHODS.projectsEnsureScratch]: () =>
-          managedFolders.ensureScratchProject.pipe(
-            Effect.mapError(
-              (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
+        [WS_METHODS.projectsEnsureScratch]: Effect.fn("ws.projects.ensureWorkspace")(
+          function* () {
+            if ((yield* CurrentWorkspaceDirectories) !== undefined) {
+              const [project] = yield* projectStore.listShells();
+              if (project === undefined)
+                return yield* new OrchestrationDispatchCommandError({
+                  message: "Ask the owner to share a workspace directory before starting a chat.",
+                });
+              return { projectId: project.id };
+            }
+            return yield* managedFolders.ensureScratchProject;
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message:
+                      cause instanceof Error ? cause.message : "The workspace is unavailable.",
+                    cause,
+                  }),
+              ),
             ),
-          ),
+        ),
         [WS_METHODS.projectsCreateNew]: (input) =>
           managedFolders
             .createNamedProject(input)
@@ -3701,6 +3723,10 @@ export const layer = Layer.unwrap(
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
           const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
           yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
+            Effect.provideService(
+              CurrentWorkspaceDirectories,
+              workspaceDirectoriesForSubject(session.subject),
+            ),
             Effect.provideService(RpcServer.Protocol, withOutputWindow(protocol)),
             Effect.provide(
               Layer.merge(
@@ -3733,6 +3759,10 @@ export const layer = Layer.unwrap(
           );
           return httpEffect;
         }).pipe(
+          Effect.provideService(
+            CurrentWorkspaceDirectories,
+            workspaceDirectoriesForSubject(session.subject),
+          ),
           Effect.provide(
             layerWsRpc(
               session,

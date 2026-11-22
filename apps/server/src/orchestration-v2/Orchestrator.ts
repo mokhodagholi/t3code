@@ -1,3 +1,4 @@
+import { CurrentWorkspaceDirectories } from "../auth/PrivateWorkspaces.ts";
 import { CurrentChatUser, referencedThreads } from "../auth/PrivateChats.ts";
 import type {
   OrchestrationV2ThreadLinkMetadata,
@@ -1729,8 +1730,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly providerInstanceId: ProviderInstanceId;
     readonly threadId: ThreadId;
   }) =>
-    input.adapter.getCapabilities().pipe(
-      Effect.flatMap((capabilities) =>
+    Effect.all([input.adapter.getCapabilities(), projectionStore.findThread(input.threadId)]).pipe(
+      Effect.flatMap(([capabilities, thread]) =>
+        thread?.allowedDirectories === undefined &&
         capabilities.sessions.supportsMultipleProviderThreadsPerSession
           ? Effect.succeed(
               idAllocator.derive.providerSession({
@@ -3999,6 +4001,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
       ...(command.ownerUserId === undefined ? {} : { ownerUserId: command.ownerUserId }),
+      ...(command.allowedDirectories === undefined
+        ? {}
+        : { allowedDirectories: command.allowedDirectories }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
@@ -9870,6 +9875,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ordinal: (yield* subagentCount(command.parentThreadId)) + 1,
       });
       const childThread: OrchestrationV2AppThread = {
+        ...(parentProjection.thread.allowedDirectories === undefined
+          ? {}
+          : { allowedDirectories: parentProjection.thread.allowedDirectories }),
         ...(parentProjection.thread.ownerUserId === undefined
           ? {}
           : { ownerUserId: parentProjection.thread.ownerUserId }),
@@ -16240,7 +16248,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const userId = yield* CurrentChatUser;
     const command =
       input.type === "thread.create" && userId !== undefined
-        ? { ...input, ownerUserId: userId }
+        ? { ...input, ownerUserId: userId, allowedDirectories: yield* CurrentWorkspaceDirectories }
         : input;
     const dispatch = threadDispatch.withLock(
       commandThreadId(command),

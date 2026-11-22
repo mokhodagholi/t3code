@@ -38,6 +38,10 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
+import {
+  CurrentWorkspaceDirectories,
+  workspaceDirectoriesForSubject,
+} from "./PrivateWorkspaces.ts";
 import { CurrentChatUser, chatUserForSubject } from "./PrivateChats.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
 import { checkRequestDpopProof } from "./dpop.ts";
@@ -264,6 +268,10 @@ export const layerAuthenticatedAuth = Layer.effect(
         const endTime = yield* Clock.currentTimeNanos;
         const handler = httpEffect.pipe(
           Effect.provideService(CurrentChatUser, chatUserForSubject(session.subject)),
+          Effect.provideService(
+            CurrentWorkspaceDirectories,
+            workspaceDirectoriesForSubject(session.subject),
+          ),
           Effect.provideService(EnvironmentAuthenticatedPrincipal, {
             ...session,
             scopes: new Set(session.scopes),

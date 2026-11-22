@@ -1,3 +1,4 @@
+import { filterWorkspaceProjects } from "../auth/PrivateWorkspaces.ts";
 import {
   type ApplicationProjectEvent,
   IsoDateTime,
@@ -295,12 +296,22 @@ export const make = Effect.gen(function* () {
     list,
     findActiveByWorkspaceRoot,
     getShell: Effect.fn("ProjectStoreV2.getShell")(function (projectId) {
-      return get(projectId).pipe(Effect.map(Option.map(toShell)));
+      return get(projectId).pipe(
+        Effect.flatMap(
+          Effect.fn(function* (project) {
+            const visible = yield* filterWorkspaceProjects(Option.toArray(project).map(toShell));
+            return Option.fromUndefinedOr(visible[0]);
+          }),
+        ),
+      );
     }),
     listShells: Effect.fn("ProjectStoreV2.listShells")(function (options) {
       return list(
         options?.projectIds === undefined ? undefined : { projectIds: options.projectIds },
-      ).pipe(Effect.map((rows) => rows.map(toShell)));
+      ).pipe(
+        Effect.map((rows) => rows.map(toShell)),
+        Effect.flatMap(filterWorkspaceProjects),
+      );
     }),
   });
 });

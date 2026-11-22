@@ -3043,6 +3043,16 @@ export const layerWithOptions = (
                     }),
                 ),
               );
+              if (
+                input.runtimePolicy.allowedDirectories !== undefined &&
+                adapter.driver !== "codex"
+              ) {
+                return yield* new ProviderSessionOpenError({
+                  instanceId: input.modelSelection.instanceId,
+                  providerSessionId: input.providerSessionId,
+                  cause: "Directory-limited chats require Codex. Choose Codex to continue.",
+                });
+              }
               const openedWithLinkedEnvironments = yield* readLinkedEnvironments;
               const prepared = yield* prepareMcpSession(
                 input.threadId,

@@ -1,3 +1,10 @@
+import {
+  CurrentWorkspaceDirectories,
+  canonicalWorkspacePath,
+  pathIsWithin,
+} from "./auth/PrivateWorkspaces.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { privateWorkspaceCommand } from "./process/privateWorkspaceCommand.ts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -274,9 +281,33 @@ const runProcessCore = Effect.fn("processRunner.runProcessCore")(function* (
   const outputMode = input.outputMode ?? "error";
   const truncatedMarker = input.truncatedMarker ?? "";
   const extendEnv = input.env !== undefined;
+  const directories = yield* CurrentWorkspaceDirectories;
+  let launch = { command: input.command, args: input.args };
+  if (directories !== undefined) {
+    const hostEnvironment = yield* HostProcess.Environment;
+    const cwd = yield* Effect.tryPromise({
+      try: () => canonicalWorkspacePath(input.spawnCwd ?? input.cwd ?? directories[0] ?? ""),
+      catch: (cause) =>
+        new ProcessSpawnError({ command: input.command, argumentCount: input.args.length, cause }),
+    });
+    const sandboxDirectory = hostEnvironment.T3CODE_PRIVATE_WORKSPACE_BWRAP_DIR;
+    if (!sandboxDirectory || !directories.some((root) => pathIsWithin(root, cwd)))
+      return yield* new ProcessSpawnError({
+        command: input.command,
+        argumentCount: input.args.length,
+        cause: "A directory-restricted sandbox is required for this command.",
+      });
+    launch = privateWorkspaceCommand({
+      command: input.command,
+      args: input.args,
+      cwd,
+      directories,
+      bwrapDirectory: sandboxDirectory,
+    });
+  }
   const spawnCommand = yield* resolveSpawnCommand(
-    input.command,
-    input.args,
+    launch.command,
+    launch.args,
     input.env === undefined ? {} : { env: input.env, extendEnv },
   );
 

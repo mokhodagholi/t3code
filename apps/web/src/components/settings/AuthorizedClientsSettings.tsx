@@ -1,3 +1,7 @@
+import { projectEnvironment } from "../../state/projects";
+import { readProjects } from "../../state/entities";
+import { newProjectId } from "../../lib/utils";
+import { PrivateWorkspaceDirectoryPicker } from "./PrivateWorkspaceDirectoryPicker";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
@@ -553,7 +557,9 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   const primaryLabel =
     clientSession.client.label ??
     ([clientSession.client.os, clientSession.client.browser].filter(Boolean).join(" · ") ||
-      clientSession.subject);
+      (clientSession.subject.startsWith("chat-user:")
+        ? clientSession.subject.split(":")[1]
+        : clientSession.subject));
 
   return (
     <div className={ITEM_ROW_CLASSNAME}>
@@ -626,9 +632,13 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
   const createPairingCredential = useAtomCommand(authEnvironment.createPairingCredential, {
     reportFailure: false,
   });
+  const createDirectoryProject = useAtomCommand(projectEnvironment.create, {
+    reportFailure: false,
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
   const [pairingUserId, setPairingUserId] = useState("");
+  const [allowedDirectories, setAllowedDirectories] = useState<ReadonlyArray<string>>([]);
   const [pairingScopes, setPairingScopes] = useState<ReadonlyArray<AuthGrantScope>>([
     ...AuthStandardClientScopes,
   ]);
@@ -639,18 +649,54 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
 
   const handleCreatePairingLink = async () => {
     if (
+      (pairingUserId.trim() !== "" && allowedDirectories.length === 0) ||
       selectedScopes.length === 0 ||
       !readEnvironmentScope(environmentId, AuthAccessWriteScope) ||
       !selectedScopes.every((scope) => readEnvironmentScope(environmentId, scope))
     )
       return;
     setIsCreatingPairingLink(true);
+    if (pairingUserId.trim()) {
+      for (const directory of allowedDirectories) {
+        if (
+          readProjects().some(
+            (project) =>
+              project.environmentId === environmentId && project.workspaceRoot === directory,
+          )
+        )
+          continue;
+        const created = await createDirectoryProject({
+          environmentId,
+          input: {
+            projectId: newProjectId(),
+            title: directory.split(/[\\/]/).filter(Boolean).at(-1) ?? directory,
+            workspaceRoot: directory,
+            createWorkspaceRootIfMissing: false,
+            defaultModelSelection: null,
+          },
+        });
+        if (created._tag !== "Success") {
+          if (!isAtomCommandInterrupted(created))
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: gt("Failed to add project"),
+                description:
+                  thrownErrorMessage(squashAtomCommandFailure(created), resolveMessage) ??
+                  gt("The environment request failed."),
+              }),
+            );
+          setIsCreatingPairingLink(false);
+          return;
+        }
+      }
+    }
     const trimmedLabel = pairingLabel.trim();
     const result = await createPairingCredential({
       environmentId,
       input: {
         ...(trimmedLabel ? { label: trimmedLabel } : {}),
-        ...(pairingUserId.trim() ? { userId: pairingUserId.trim() } : {}),
+        ...(pairingUserId.trim() ? { userId: pairingUserId.trim(), allowedDirectories } : {}),
         scopes: selectedScopes,
       },
     });
@@ -658,6 +704,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
       onPairingLinkCreated(result.value);
       setPairingLabel("");
       setPairingUserId("");
+      setAllowedDirectories([]);
       setPairingScopes(
         AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
       );
@@ -712,6 +759,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
           if (!open) {
             setPairingLabel("");
             setPairingUserId("");
+            setAllowedDirectories([]);
             setPairingScopes(
               AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
             );
@@ -746,6 +794,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
                 <T>Private chat account (optional)</T>
               </span>
               <Input
+                aria-label={gt("Private chat account (optional)")}
                 value={pairingUserId}
                 onChange={(event) => setPairingUserId(event.target.value.toLowerCase())}
                 placeholder="alice"
@@ -759,6 +808,14 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
                 </T>
               </p>
             </label>
+            {pairingUserId.trim() ? (
+              <PrivateWorkspaceDirectoryPicker
+                environmentId={environmentId}
+                value={allowedDirectories}
+                onChange={setAllowedDirectories}
+                disabled={isCreatingPairingLink}
+              />
+            ) : null}
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-foreground">
                 <T>Client label (optional)</T>
@@ -874,6 +931,7 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
             <Button
               disabled={
                 isCreatingPairingLink ||
+                (pairingUserId.trim() !== "" && allowedDirectories.length === 0) ||
                 selectedScopes.length === 0 ||
                 (pairingUserId.trim() !== "" &&
                   !/^(?!owner$)[a-z][a-z0-9_-]{0,31}$/.test(pairingUserId.trim()))

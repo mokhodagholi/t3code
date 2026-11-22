@@ -1,3 +1,4 @@
+import { CurrentWorkspaceDirectories } from "./PrivateWorkspaces.ts";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
@@ -77,4 +78,44 @@ it.effect("checks all chat references and filters rows before pagination", () =>
     );
     assert.isTrue(yield* canReadThread(sql, "bob-chat"));
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);
+
+it.effect(
+  "filters private chats by directory grant before pagination and rejects unrestricted runtimes",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)`;
+      for (const [id, roots] of [
+        ["a-outside", ["/outside"]],
+        ["b-broad", ["/allowed", "/outside"]],
+        ["c-legacy", undefined],
+        ["d-inside", ["/allowed/child"]],
+        ["e-empty", []],
+      ] as const) {
+        yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES (${id}, ${JSON.stringify({ ownerUserId: "alice", ...(roots === undefined ? {} : { allowedDirectories: roots }) })})`;
+      }
+      const check = Effect.gen(function* () {
+        const visible = yield* threadVisibility(sql, "t");
+        const rows = yield* sql<{
+          thread_id: string;
+        }>`SELECT t.thread_id FROM orchestration_v2_projection_threads AS t WHERE ${visible} ORDER BY t.thread_id LIMIT 1`;
+        assert.deepEqual(
+          rows.map((row) => row.thread_id),
+          ["d-inside"],
+        );
+        assert.isTrue(yield* canReadThread(sql, "d-inside"));
+        assert.isFalse(yield* canReadThread(sql, "b-broad"));
+        assert.isFalse(yield* canReadThread(sql, "c-legacy"));
+        assert.isFalse(yield* canReadThread(sql, "e-empty"));
+        const denied = yield* Effect.flip(
+          authorizeThreadReferences(sql, { cwd: "/outside", relativePath: "secret.txt" }),
+        );
+        assert.equal(denied._tag, "EnvironmentAuthorizationError");
+      });
+      yield* check.pipe(
+        Effect.provideService(CurrentChatUser, "alice"),
+        Effect.provideService(CurrentWorkspaceDirectories, ["/allowed"]),
+      );
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );

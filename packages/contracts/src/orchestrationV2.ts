@@ -472,6 +472,7 @@ const OrchestrationV2LastTitleRegeneration = Schema.Struct({
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   ownerUserId: Schema.optional(TrimmedNonEmptyString),
+  allowedDirectories: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   id: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
@@ -3139,6 +3140,7 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.create"),
     ...OrchestrationV2CreationFields,
     ownerUserId: Schema.optional(TrimmedNonEmptyString),
+    allowedDirectories: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
     commandId: CommandId,
     threadId: ThreadId,
     projectId: ProjectId,

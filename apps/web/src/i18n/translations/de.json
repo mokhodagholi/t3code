@@ -7456,6 +7456,7 @@
   "06ec30a199134db1": "Kopplungs-URL konnte nicht erstellt werden.",
   "79b1490795e4c205": "Kopplungs-URL konnte nicht erstellt werden",
   "b76eda9aa9bec002": "Andere widerrufen",
+  "3b2984a32d856488": "Privates Chatkonto (optional)",
   "04ab01b535a8e3a8": "z. B. iPad im Wohnzimmer",
   "274fac14d65ab9cc": "Standard",
   "e0dde491debc2517": "Terminalbefehle können Dateien im Rahmen der Berechtigungen des Serverkontos lesen oder ändern.",
@@ -8788,6 +8789,14 @@
   "dfabc4c20ab78d41": "Keine Lizenzen entsprechen dieser Suche.",
   "a6f0345697704afa": "Open-Source-Hinweise werden geladen…",
   "9268a10862868fe5": "Vorschau der Panel-Animation erneut abspielen",
+  "23ddfb49cd0c4bff": "Erlaubte Verzeichnisse",
+  "bf2145416af2d8ae": "Verzeichnisse des Eigentümers durchsuchen",
+  "4628b6c94c301241": "Verzeichnis {directory} öffnen",
+  "b1bd67badd1b3d79": "Erlaubte Verzeichnisse",
+  "873b2ce894439bed": "Wähle die Ordner des Eigentümers aus, die dieser private Link verwenden darf. Unterordner sind eingeschlossen.",
+  "b2393412cb23e579": "Aktuelles Verzeichnis auswählen",
+  "4443a55da5840592": "Wähle mindestens ein Verzeichnis für dieses private Konto aus.",
+  "23930abe24e92ee1": "Chats mit Verzeichnisbeschränkung verwenden Codex. Host-Terminals und externe Agentenwerkzeuge sind nicht verfügbar.",
   "1c16849175c9fdd3": "{signal} senden",
   "3e2c2cacab23110c": [
     {

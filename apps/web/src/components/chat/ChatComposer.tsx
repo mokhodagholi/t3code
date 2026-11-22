@@ -898,6 +898,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
     composerProviderState,
   } = useComposerProviderModel({
+    environmentId,
     providerStatuses,
     settings,
     activeProjectId,

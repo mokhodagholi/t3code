@@ -236,6 +236,21 @@ describe("CodexAdapterV2 runtime policy", () => {
       });
       assert.equal(fullAccess.approvalsReviewer, "user");
       assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
+      const limited = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        nativeThreadId: "native-directory-limited",
+        codexInput: [{ type: "text", text: "test" }],
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/allowed",
+          allowedDirectories: ["/allowed"],
+          sandboxPolicy: { type: "dangerFullAccess" },
+          approvalPolicy: "never",
+        },
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      });
+      assert.equal(limited.approvalPolicy, "never");
+      assert.isUndefined(limited.sandboxPolicy);
     }),
   );
 

@@ -1,3 +1,4 @@
+import { CurrentWorkspaceDirectories } from "./auth/PrivateWorkspaces.ts";
 import { isWindowsCommandNotFound } from "@t3tools/provider-core/server/snapshotProbe";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -79,6 +80,29 @@ const runWith =
     );
 
 describe("runProcess", () => {
+  it.effect("does not launch a restricted command when its sandbox helper is unavailable", () =>
+    Effect.gen(function* () {
+      let spawns = 0;
+      const spawner = makeSpawner(() =>
+        Effect.sync(() => {
+          spawns++;
+          return makeHandle({ stdout: "unsafe" });
+        }),
+      );
+      const result = yield* runWith(spawner)({
+        command: "/bin/sh",
+        args: ["-c", "true"],
+        cwd: "/",
+      }).pipe(
+        Effect.provideService(CurrentWorkspaceDirectories, ["/"]),
+        Effect.provideService(HostProcess.Environment, {}),
+        Effect.flip,
+      );
+      expect(result).toBeInstanceOf(ProcessRunner.ProcessSpawnError);
+      expect(spawns).toBe(0);
+    }),
+  );
+
   it.effect("resolves and escapes Windows command shims before spawning", () => {
     const spawner = makeSpawner((command) =>
       Effect.sync(() => {

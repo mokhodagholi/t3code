@@ -1,3 +1,5 @@
+import { useEnvironmentSessionState } from "../../state/session";
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   type DraftId,
   deriveEffectiveComposerModelState,
@@ -30,6 +32,7 @@ const NO_PROVIDER_MODELS: ServerProvider["models"] = [];
 export function useComposerProviderModel(
   input: Omit<Parameters<typeof resolveComposerProviderSelection>[0], "entries"> & {
     readonly providerStatuses: ReadonlyArray<ServerProvider>;
+    readonly environmentId?: EnvironmentId;
     readonly settings: UnifiedSettings;
     readonly activeProjectId: ProjectId | null;
     readonly threadRef: ScopedThreadRef | DraftId;
@@ -53,8 +56,13 @@ export function useComposerProviderModel(
     threadStarted,
   } = input;
   const draftModelState = useComposerDraftModelState(threadRef);
+  const restricted =
+    useEnvironmentSessionState(input.environmentId ?? null).data?.allowedDirectories !== undefined;
+  const availableProviders = restricted
+    ? providerStatuses.filter((provider) => provider.driver === "codex")
+    : providerStatuses;
   const providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry> = providerInstanceEntriesFor(
-    providerStatuses,
+    availableProviders,
     settings,
     activeProjectId,
   );
@@ -66,8 +74,11 @@ export function useComposerProviderModel(
         : null,
       ...candidateInstanceIds,
     ],
-    lockedProvider,
-    lockedInstanceId,
+    lockedProvider: restricted ? null : lockedProvider,
+    lockedInstanceId:
+      restricted && !availableProviders.some((provider) => provider.instanceId === lockedInstanceId)
+        ? undefined
+        : lockedInstanceId,
   });
   const selectedInstanceId =
     selection.selectedProviderEntry?.instanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId;
@@ -76,7 +87,7 @@ export function useComposerProviderModel(
   const modelState = deriveEffectiveComposerModelState({
     draft: draftModelState,
     threadStarted,
-    providers: providerStatuses,
+    providers: availableProviders,
     selectedProvider,
     selectedInstanceId,
     requestedInstanceId: selection.requestedInstanceId,
