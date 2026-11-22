@@ -39,6 +39,8 @@ export function PrivateWorkspaceDirectoryPicker({
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [path, setPath] = useState("~/");
   const [discoveredDirectories, setDiscoveredDirectories] = useState<ReadonlyArray<string>>([]);
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const queryPath = useDebouncedValue(path, 200);
   const runBrowse = useAtomQueryRunner(filesystemEnvironment.browse, {
     reportFailure: false,
@@ -88,6 +90,7 @@ export function PrivateWorkspaceDirectoryPicker({
           found.push(entry.fullPath);
           queue.push({ path: entry.fullPath, depth: current.depth + 1 });
         }
+        if (!cancelled) setDiscoveredDirectories([...found]);
       }
       if (!cancelled) setDiscoveredDirectories(found);
     })();
@@ -98,8 +101,8 @@ export function PrivateWorkspaceDirectoryPicker({
   const toggle = (directory: string, checked: boolean) =>
     onChange(
       checked
-        ? [...new Set([...value, directory])]
-        : value.filter((candidate) => candidate !== directory),
+        ? [...new Set([...valueRef.current, directory])]
+        : valueRef.current.filter((candidate) => candidate !== directory),
     );
   const treePathByModelPath = useMemo<Map<string, string>>(
     () =>
@@ -113,8 +116,6 @@ export function PrivateWorkspaceDirectoryPicker({
   );
   const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
-  const valueRef = useRef(value);
-  valueRef.current = value;
   const { model } = useFileTree({
     density: "compact",
     icons: PRIVATE_WORKSPACE_TREE_ICONS,
