@@ -77,25 +77,27 @@ export function PrivateWorkspaceDirectoryPicker({
     const roots = projectRoots;
     void (async () => {
       const seen = new Set<string>();
-      const queue = roots.map((root) => ({ path: root.replace(/\/+$/u, ""), depth: 0 }));
-      const found: string[] = [];
-      while (queue.length > 0 && seen.size < 128 && !cancelled) {
-        const current = queue.shift();
-        if (!current || seen.has(current.path) || current.depth >= 6) continue;
-        seen.add(current.path);
-        const result = await runBrowseRef.current({
-          environmentId,
-          input: { partialPath: `${current.path}/` },
-        });
-        if (result._tag !== "Success") continue;
-        for (const entry of result.value.entries) {
-          if (!entry.fullPath || found.includes(entry.fullPath)) continue;
-          found.push(entry.fullPath);
-          queue.push({ path: entry.fullPath, depth: current.depth + 1 });
+      const queue = roots.map((root) => root.replace(/\/+$/u, ""));
+      const found = new Set<string>();
+      const loadWorker = async () => {
+        while (queue.length > 0 && seen.size < 4096 && !cancelled) {
+          const current = queue.shift();
+          if (!current || seen.has(current)) continue;
+          seen.add(current);
+          const result = await runBrowseRef.current({
+            environmentId,
+            input: { partialPath: `${current}/` },
+          });
+          if (result._tag !== "Success") continue;
+          for (const entry of result.value.entries) {
+            if (!entry.fullPath || found.has(entry.fullPath)) continue;
+            found.add(entry.fullPath);
+            queue.push(entry.fullPath.replace(/\/+$/u, ""));
+          }
+          if (!cancelled) setDiscoveredDirectories([...found]);
         }
-        if (!cancelled) setDiscoveredDirectories([...found]);
-      }
-      if (!cancelled) setDiscoveredDirectories(found);
+      };
+      await Promise.all(Array.from({ length: 8 }, loadWorker));
     })();
     return () => {
       cancelled = true;
@@ -149,7 +151,7 @@ export function PrivateWorkspaceDirectoryPicker({
   useEffect(() => {
     if (previousTreePaths.current === treePaths) return;
     previousTreePaths.current = treePaths;
-    model.resetPaths(treePaths);
+    model.resetPaths(treePaths, { initialExpandedPaths: treePaths });
   }, [model, treePaths]);
   useEffect(() => {
     model.setComposition(model.getComposition());
