@@ -49,7 +49,7 @@ export function PrivateWorkspaceDirectoryPicker({
         ? [...new Set([...value, directory])]
         : value.filter((candidate) => candidate !== directory),
     );
-  const treePathByModelPath = useMemo(
+  const treePathByModelPath = useMemo<Map<string, string>>(
     () =>
       new Map(
         directories.map((directory) => {
@@ -66,7 +66,10 @@ export function PrivateWorkspaceDirectoryPicker({
     initialExpansion: "open",
     onSelectionChange: (selectedPaths) => {
       const selected = selectedPaths.at(-1);
-      const directory = selected === undefined ? undefined : treePathByModelPath.get(selected);
+      const directory =
+        selected === undefined
+          ? undefined
+          : treePathByModelPath.get(selected.endsWith("/") ? selected : `${selected}/`);
       if (directory !== undefined) toggle(directory, true);
     },
     paths: [],
@@ -125,13 +128,37 @@ export function PrivateWorkspaceDirectoryPicker({
           </T>
         </p>
       ) : null}
-      <div className="max-h-48 overflow-y-auto rounded-md border border-input p-1">
+      <div className="h-48 overflow-y-auto rounded-md border border-input p-1">
         <FileTree
           model={model}
           aria-label={gt("Owner directories")}
-          className="min-h-20"
+          className="block h-full min-h-20"
           style={pierreTreeStyle(resolvedTheme)}
         />
+        {directories.length > 0 ? (
+          <div className="mt-1 space-y-0.5 border-t border-border pt-1">
+            {directories.map((directory) => (
+              <label
+                key={directory}
+                className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-muted"
+              >
+                <Checkbox
+                  checked={value.includes(directory)}
+                  disabled={disabled}
+                  onCheckedChange={(checked) => toggle(directory, checked === true)}
+                  aria-label={directory}
+                />
+                <span className="truncate" title={directory}>
+                  {directory}
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="px-1.5 py-2 text-xs text-muted-foreground">
+            <T>No owner directories are available for this environment.</T>
+          </p>
+        )}
       </div>
       {value.length === 0 ? (
         <p className="text-xs text-muted-foreground">

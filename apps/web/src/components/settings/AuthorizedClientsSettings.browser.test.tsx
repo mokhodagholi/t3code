@@ -111,4 +111,16 @@ describe("AuthorizedClientsHeaderAction", () => {
     await expect.element(screen.getByRole("button", { name: "Create link" })).toBeEnabled();
     expect(screen.getByRole("group", { name: denial }).query()).toBeNull();
   });
+
+  it("shows owner directories for a private account", async () => {
+    setup([]);
+    await using screen = await renderHeader(serviceId, AuthStandardClientScopes);
+
+    await userEvent.click(screen.getByRole("button", { name: "Create link" }));
+    await userEvent.fill(
+      screen.getByRole("textbox", { name: "Private chat account (optional)" }),
+      "alice",
+    );
+    await expect.element(screen.getByText("/work/owner")).toBeVisible();
+  });
 });
