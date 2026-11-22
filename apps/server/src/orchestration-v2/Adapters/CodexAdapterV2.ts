@@ -128,7 +128,11 @@ import {
   shouldPersistProviderEvent,
 } from "../../provider/EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
-import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
+import {
+  codexAppServerArgs,
+  codexPrivateAppServerArgs,
+  resolveCodexLaunchArgs,
+} from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -1831,7 +1835,7 @@ export const layerAppServerClientFactory: Layer.Layer<
         const command = yield* makeCodexAppServerSpawnCommand({
           command:
             restricted && privateBinary ? privateBinary : input.settings.binaryPath || "codex",
-          args: codexAppServerArgs(
+          args: (restricted ? codexPrivateAppServerArgs : codexAppServerArgs)(
             resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
           ),
           env: environment,

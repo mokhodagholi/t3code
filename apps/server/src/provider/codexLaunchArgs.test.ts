@@ -4,6 +4,7 @@ import { describe, it } from "vite-plus/test";
 
 import {
   codexAppServerArgs,
+  codexPrivateAppServerArgs,
   codexExecLaunchArgs,
   codexMcpListLaunchArgs,
   resolveCodexLaunchArgs,
@@ -79,6 +80,17 @@ describe("codexExecLaunchArgs", () => {
     NodeAssert.deepStrictEqual(codexExecLaunchArgs("--config --strict-config --enable --disable"), [
       "--strict-config",
     ]);
+  });
+});
+
+describe("codexPrivateAppServerArgs", () => {
+  it("drops MCP config overrides from restricted sessions", () => {
+    NodeAssert.deepStrictEqual(
+      codexPrivateAppServerArgs(
+        '-c mcp_servers.t3-code.enabled=true --config mcp_servers.t3-code.url="http://127.0.0.1:1/mcp" --config model="gpt-6"',
+      ),
+      ["app-server", "-c", "thread_unload_delay_secs=0", "--config", "model=gpt-6"],
+    );
   });
 });
 

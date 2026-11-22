@@ -20,6 +20,35 @@ export const codexAppServerArgs = (launchArgs?: string) => [
   ...codexLaunchArgv(launchArgs),
 ];
 
+/** Restricted workspace sessions must not inherit MCP definitions from user launch arguments. */
+export const codexPrivateAppServerArgs = (launchArgs?: string) => {
+  const args = codexLaunchArgv(launchArgs);
+  const kept: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (SHARED_VALUE_FLAGS.includes(arg)) {
+      const value = args[index + 1];
+      if (value?.startsWith("mcp_servers")) {
+        index++;
+        continue;
+      }
+      kept.push(arg);
+      if (value !== undefined) {
+        kept.push(value);
+        index++;
+      }
+      continue;
+    }
+    if (SHARED_INLINE_PREFIXES.some((prefix) => arg.startsWith(prefix))) {
+      const value = arg.slice(arg.indexOf("=") + 1);
+      if (value.startsWith("mcp_servers")) continue;
+    }
+    kept.push(arg);
+  }
+  return ["app-server", "-c", "thread_unload_delay_secs=0", ...kept];
+};
+
 interface LaunchArgFilter {
   readonly switches: ReadonlySet<string>;
   readonly valueFlags: ReadonlySet<string>;
