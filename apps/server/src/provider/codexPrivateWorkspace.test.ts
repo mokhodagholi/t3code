@@ -6,5 +6,6 @@ it("sets a deny-by-default profile with only the owner's explicit directories wr
     filesystem: { ":root": "deny", ":minimal": "read", "/work/one": "write", "/work/two": "write" },
   });
   expect(config.approval_policy).toBe("never");
-  expect(config["mcp_servers.t3-code.enabled"]).toBe(false);
+  expect(config["mcp_servers.t3-code.enabled"]).toBeUndefined();
+  expect(config["mcp_servers.t3-code-direct.enabled"]).toBeUndefined();
 });

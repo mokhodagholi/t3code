@@ -16,7 +16,5 @@ export function codexPrivateWorkspaceConfig(
       network: { enabled: true },
     },
     approval_policy: "never",
-    "mcp_servers.t3-code.enabled": false,
-    "mcp_servers.t3-code-direct.enabled": false,
   };
 }
