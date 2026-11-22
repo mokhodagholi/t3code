@@ -1,4 +1,5 @@
 import { AuthFilesystemReadScope, type EnvironmentId } from "@t3tools/contracts";
+import type { FileTree as PierreFileTree } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { T, useGT, useMessages } from "gt-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import { Input } from "../ui/input";
 
 const PRIVATE_WORKSPACE_TREE_ICONS = {
   ...T3_PIERRE_ICONS,
+  set: "minimal" as const,
   spriteSheet: T3_PIERRE_ICONS.spriteSheet.replace(
     "</svg>",
     '<symbol id="t3-private-directory-unchecked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol><symbol id="t3-private-directory-checked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="currentColor"/><path d="m4.5 8 2.2 2.2 4.8-4.8" fill="none" stroke="var(--trees-bg-override, white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>',
@@ -121,6 +123,7 @@ export function PrivateWorkspaceDirectoryPicker({
   );
   const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
+  const treeModelRef = useRef<PierreFileTree | null>(null);
   const { model } = useFileTree({
     density: "compact",
     icons: PRIVATE_WORKSPACE_TREE_ICONS,
@@ -132,6 +135,9 @@ export function PrivateWorkspaceDirectoryPicker({
           ? undefined
           : treePathByModelPath.get(selected.endsWith("/") ? selected : `${selected}/`);
       if (directory !== undefined) toggle(directory, !valueRef.current.includes(directory));
+      if (selected !== undefined) {
+        queueMicrotask(() => treeModelRef.current?.getItem(selected)?.deselect());
+      }
     },
     paths: [],
     renderRowDecoration: ({ row }) => {
@@ -148,6 +154,7 @@ export function PrivateWorkspaceDirectoryPicker({
     search: false,
     unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
   });
+  treeModelRef.current = model;
   useEffect(() => {
     if (previousTreePaths.current === treePaths) return;
     previousTreePaths.current = treePaths;
