@@ -129,12 +129,6 @@ export function PrivateWorkspaceDirectoryPicker({
         </p>
       ) : null}
       <div className="h-48 overflow-y-auto rounded-md border border-input p-1">
-        <FileTree
-          model={model}
-          aria-label={gt("Owner directories")}
-          className="block h-full min-h-20"
-          style={pierreTreeStyle(resolvedTheme)}
-        />
         {directories.length > 0 ? (
           <div className="mt-1 space-y-0.5 border-t border-border pt-1">
             {directories.map((directory) => (
@@ -159,6 +153,12 @@ export function PrivateWorkspaceDirectoryPicker({
             <T>No owner directories are available for this environment.</T>
           </p>
         )}
+        <FileTree
+          model={model}
+          aria-label={gt("Owner directory tree")}
+          className="block min-h-20"
+          style={pierreTreeStyle(resolvedTheme)}
+        />
       </div>
       {value.length === 0 ? (
         <p className="text-xs text-muted-foreground">
