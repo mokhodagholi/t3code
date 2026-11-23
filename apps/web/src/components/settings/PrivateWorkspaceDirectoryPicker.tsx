@@ -248,6 +248,33 @@ function EnvironmentDirectoryPicker({
       <p className="text-xs text-muted-foreground">
         <T>Click folder rows to toggle access. Subfolders are included.</T>
       </p>
+      <div aria-live="polite" className="space-y-1 text-xs">
+        <p className="font-medium text-foreground">
+          {value.length === 0
+            ? gt("No directories selected")
+            : gt(
+                "{count, plural, one {{count} directory selected} other {{count} directories selected}}",
+                {
+                  count: value.length,
+                },
+              )}
+        </p>
+        {value.length > 0 ? (
+          <ul
+            aria-label={gt("Selected directories")}
+            className="max-h-24 space-y-1 overflow-y-auto"
+          >
+            {value.map((directory) => (
+              <li
+                key={directory}
+                className="truncate rounded bg-muted px-2 py-1 text-muted-foreground"
+              >
+                {directory}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       <Input
         aria-label={gt("Browse owner directories")}
         value={path}

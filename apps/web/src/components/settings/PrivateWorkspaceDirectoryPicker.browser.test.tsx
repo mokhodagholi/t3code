@@ -127,17 +127,22 @@ it("separates arrow expansion from row selection, including the arrow padding", 
   const checkbox = root.element().querySelector<HTMLElement>('[data-item-section="decoration"]')!;
   await userEvent.click(checkbox);
   await expect.element(reset).toBeEnabled();
+  await expect.element(screen.getByText("1 directory selected", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("/work/owner", { exact: true })).toBeVisible();
+  await userEvent.click(checkbox);
+  await expect.element(screen.getByText("No directories selected", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("/work/owner", { exact: true })).not.toBeInTheDocument();
   await clickRow(root);
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
-  await expect.element(reset).toBeEnabled();
+  await expect.element(reset).toBeDisabled();
   const icon = root.element().querySelector<HTMLElement>('[data-item-section="icon"]')!;
   expect(getComputedStyle(icon).padding).toBe("2px");
   // Clicking the padded arrow area still only changes expansion.
   await userEvent.click(icon, { position: { x: 1, y: 1 } });
   const child = screen.getByRole("treeitem", { name: "child", exact: true });
   await expect.element(child).toBeVisible();
-  await expect.element(reset).toBeEnabled();
+  await expect.element(reset).toBeDisabled();
   await clickRow(root);
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
-  await expect.element(reset).toBeEnabled();
+  await expect.element(reset).toBeDisabled();
 });
