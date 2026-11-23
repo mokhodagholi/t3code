@@ -19,13 +19,13 @@ test(
         ),
       );
     await expect.poll(tree).toBe(true);
-    const clickRow = (path: string) =>
+    const clickArrow = (path: string) =>
       browser.evaluate((path) => {
         const tree = document.querySelector(
           'file-tree-container[aria-label="Owner directories"]',
         )?.shadowRoot;
         const row = tree?.querySelector<HTMLElement>(`[data-item-path="${path}"]`);
-        row?.click();
+        row?.querySelector<HTMLElement>('[data-item-section="icon"]')?.click();
         return Boolean(row);
       }, path);
     const hasRow = (path: string) =>
@@ -41,16 +41,32 @@ test(
     let path = "";
     for (const segment of project.split("/").filter(Boolean)) {
       path += `${segment}/`;
-      await clickRow(path);
+      await clickArrow(path);
     }
+    const selected = () =>
+      browser.evaluate(() => {
+        const tree = document.querySelector(
+          'file-tree-container[aria-label="Owner directories"]',
+        )?.shadowRoot;
+        return tree?.querySelectorAll('[title="Allowed"]').length ?? 0;
+      });
+    await expect.poll(selected).toBe(0);
+    await browser.evaluate((path) => {
+      document
+        .querySelector('file-tree-container[aria-label="Owner directories"]')
+        ?.shadowRoot?.querySelector<HTMLElement>(`[data-item-path="${path}"]`)
+        ?.click();
+      return null;
+    }, path);
+    await expect.poll(selected).toBe(1);
     const child = `${path}child/`;
     await app.screenshot("folder-open");
     await expect.poll(() => hasRow(child)).toBe(true);
-    await clickRow(child);
+    await clickArrow(child);
     await expect.poll(() => hasRow(`${child}deep/`)).toBe(true);
-    await clickRow(path);
+    await clickArrow(path);
     await expect.poll(() => hasRow(child)).toBe(false);
-    await clickRow(path);
+    await clickArrow(path);
     await expect.poll(() => hasRow(child)).toBe(true);
   },
 );

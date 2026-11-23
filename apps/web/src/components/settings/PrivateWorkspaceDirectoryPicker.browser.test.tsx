@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { userEvent, type Locator } from "vite-plus/test/browser";
 import "~/index.css";
 import { act, render } from "../../../test/render";
 import { PrivateWorkspaceDirectoryPicker } from "./PrivateWorkspaceDirectoryPicker";
@@ -36,6 +36,10 @@ function Picker() {
     />
   );
 }
+async function clickArrow(row: Locator) {
+  await expect.element(row).toBeVisible();
+  await userEvent.click(row.element().querySelector<HTMLElement>('[data-item-section="icon"]')!);
+}
 const listing = (parentPath: string, names: string[]) => ({
   _tag: "Success",
   value: {
@@ -57,26 +61,26 @@ function setup() {
 it("opens folders lazily using absolute paths, preserves children across project updates, and closes/reopens", async () => {
   setup();
   await using screen = await render(<Picker />);
-  await userEvent.click(screen.getByRole("treeitem", { name: "work", exact: true }));
+  await clickArrow(screen.getByRole("treeitem", { name: "work", exact: true }));
   const root = screen.getByRole("treeitem", { name: "owner", exact: true });
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   expect(state.browse).not.toHaveBeenCalled();
-  await userEvent.click(root);
+  await clickArrow(root);
   await expect.poll(() => state.browse.mock.calls[0]?.[0].input.partialPath).toBe("/work/owner/");
   const child = screen.getByRole("treeitem", { name: "child", exact: true });
   await expect.element(child).toBeVisible();
   await expect.element(child).toHaveAttribute("aria-expanded", "false");
   expect(state.browse).toHaveBeenCalledTimes(1);
-  await userEvent.click(child);
+  await clickArrow(child);
   await expect.element(screen.getByRole("treeitem", { name: "deep", exact: true })).toBeVisible();
   expect(state.browse).toHaveBeenCalledTimes(2);
   state.projects = state.projects.map((project) => ({ ...project }));
   await screen.rerender(<Picker />);
   await expect.element(screen.getByRole("treeitem", { name: "deep", exact: true })).toBeVisible();
-  await userEvent.click(root);
+  await clickArrow(root);
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   await expect.element(child).not.toBeInTheDocument();
-  await userEvent.click(root);
+  await clickArrow(root);
   await expect.element(child).toBeVisible();
   expect(state.browse).toHaveBeenCalledTimes(2);
 });
@@ -91,17 +95,44 @@ it("keeps a folder closed when its pending load finishes", async () => {
       }),
   );
   await using screen = await render(<Picker />);
-  await userEvent.click(screen.getByRole("treeitem", { name: "work", exact: true }));
+  await clickArrow(screen.getByRole("treeitem", { name: "work", exact: true }));
   const root = screen.getByRole("treeitem", { name: "owner", exact: true });
-  await userEvent.click(root);
+  await clickArrow(root);
   await expect.poll(() => state.browse.mock.calls.length).toBe(1);
-  await userEvent.click(root);
+  await clickArrow(root);
   await act(() => finish(listing("/work/owner", ["child"])));
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   await expect
     .element(screen.getByRole("treeitem", { name: "child", exact: true }))
     .not.toBeInTheDocument();
-  await userEvent.click(root);
+  await clickArrow(root);
   await expect.element(screen.getByRole("treeitem", { name: "child", exact: true })).toBeVisible();
   expect(state.browse).toHaveBeenCalledTimes(1);
+});
+
+it("separates arrow expansion from row selection, including the arrow padding", async () => {
+  setup();
+  await using screen = await render(<Picker />);
+  await clickArrow(screen.getByRole("treeitem", { name: "work", exact: true }));
+  const root = screen.getByRole("treeitem", { name: "owner", exact: true });
+  const reset = screen.getByRole("button", { name: "Reset", exact: true });
+  await userEvent.click(root);
+  await expect.element(root).toHaveAttribute("aria-expanded", "false");
+  await expect.element(reset).toBeEnabled();
+  expect(state.browse).not.toHaveBeenCalled();
+  await userEvent.click(root);
+  await expect.element(reset).toBeDisabled();
+  const icon = root.element().querySelector<HTMLElement>('[data-item-section="icon"]')!;
+  expect(getComputedStyle(icon).padding).toBe("2px");
+  // Click inside the extra padding, outside the SVG itself.
+  await userEvent.click(icon, { position: { x: 1, y: 1 } });
+  const child = screen.getByRole("treeitem", { name: "child", exact: true });
+  await expect.element(child).toBeVisible();
+  await expect.element(reset).toBeDisabled();
+  await userEvent.click(root);
+  await expect.element(root).toHaveAttribute("aria-expanded", "true");
+  await expect.element(reset).toBeEnabled();
+  await clickArrow(root);
+  await expect.element(root).toHaveAttribute("aria-expanded", "false");
+  await expect.element(reset).toBeEnabled();
 });

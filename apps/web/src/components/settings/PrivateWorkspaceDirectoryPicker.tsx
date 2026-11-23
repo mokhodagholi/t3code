@@ -2,7 +2,7 @@ import { AuthFilesystemReadScope, type EnvironmentId } from "@t3tools/contracts"
 import type { FileTree as PierreFileTree, FileTreeRowDecorationContext } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { T, useGT, useMessages } from "gt-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "react";
 import { useProjects } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
@@ -26,6 +26,14 @@ const PRIVATE_WORKSPACE_TREE_ICONS = {
     '<symbol id="t3-private-directory-unchecked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol><symbol id="t3-private-directory-checked" viewBox="0 0 16 16"><rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2" fill="currentColor"/><path d="m4.5 8 2.2 2.2 4.8-4.8" fill="none" stroke="var(--trees-bg-override, white)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>',
   ),
 };
+
+const PRIVATE_WORKSPACE_TREE_CSS = `${PIERRE_TREE_UNSAFE_CSS}
+  [data-item-type="folder"] > [data-item-section="icon"] {
+    box-sizing: content-box;
+    padding: 2px;
+    margin: -2px;
+  }
+`;
 
 interface PrivateWorkspaceDirectoryPickerProps {
   readonly environmentId: EnvironmentId;
@@ -158,8 +166,31 @@ function EnvironmentDirectoryPicker({
     paths: [],
     renderRowDecoration,
     search: false,
-    unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
+    unsafeCSS: PRIVATE_WORKSPACE_TREE_CSS,
   });
+  const handleTreeClick = (event: MouseEvent<HTMLElement>) => {
+    // Pierre's rows live in an open shadow root, so event.target is the host.
+    const elements = event.nativeEvent
+      .composedPath()
+      .filter((entry) => entry instanceof HTMLElement);
+    const row = elements.find((element) => element.dataset.itemPath !== undefined);
+    const treePath = row?.dataset.itemPath;
+    if (row === undefined || treePath === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (disabled) return;
+    row.focus({ preventScroll: true });
+    const item = model.getItem(treePath);
+    const clickedArrow =
+      row.dataset.itemType === "folder" &&
+      elements.some((element) => element.dataset.itemSection === "icon");
+    if (clickedArrow && item?.isDirectory() && "toggle" in item) {
+      item.toggle();
+    } else {
+      const directory = treePathByModelPath.get(treePath);
+      if (directory !== undefined) toggle(directory, !value.includes(directory));
+    }
+  };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expose the imperative tree to the selection callback after mounting
   useEffect(() => {
     treeModelRef.current = model;
@@ -258,6 +289,7 @@ function EnvironmentDirectoryPicker({
       <div className="h-48 overflow-y-auto rounded-md border border-input p-1">
         <FileTree
           model={model}
+          onClickCapture={handleTreeClick}
           aria-label={gt("Owner directories")}
           className="block min-h-20"
           style={pierreTreeStyle(resolvedTheme)}
