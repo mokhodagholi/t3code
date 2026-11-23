@@ -43,8 +43,9 @@ export function PrivateWorkspaceDirectoryPicker({
     [allProjects, environmentId],
   );
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
-  const [path, setPath] = useState("~/");
-  const [discoveredDirectories, setDiscoveredDirectories] = useState<ReadonlyArray<string>>([]);
+  const [path, setPath] = useState("");
+  const [loadedDirectoryChildren, setLoadedDirectoryChildren] = useState<ReadonlyArray<string>>([]);
+  const [emptyDirectories, setEmptyDirectories] = useState<ReadonlyArray<string>>([]);
   const valueRef = useRef(value);
   valueRef.current = value;
   const queryPath = useDebouncedValue(path, 200);
@@ -64,47 +65,62 @@ export function PrivateWorkspaceDirectoryPicker({
     () => [...new Set(projects.map((project) => project.workspaceRoot).filter(Boolean))],
     [projects],
   );
-  const projectRootsKey = projectRoots.join("\0");
   const directories = [
-    ...new Set([
-      ...value,
-      ...projects.map((project) => project.workspaceRoot),
-      ...discoveredDirectories,
-      ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
-    ]),
+    ...new Set(
+      [
+        ...value,
+        ...projects.map((project) => project.workspaceRoot),
+        ...loadedDirectoryChildren,
+        ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
+      ]
+        .filter(Boolean)
+        .map((directory) => directory.replace(/\/+$/u, "")),
+    ),
   ].sort();
+  const loadedDirectoryPathsRef = useRef(new Set<string>());
+  const loadingDirectoryPathsRef = useRef(new Set<string>());
+  const expandedDirectoryPathsRef = useRef(new Set<string>());
   useEffect(() => {
-    if (!canBrowse) return;
-    let cancelled = false;
-    const roots = projectRoots;
-    void (async () => {
-      const seen = new Set<string>();
-      const queue = roots.map((root) => root.replace(/\/+$/u, ""));
-      const found = new Set<string>();
-      const loadWorker = async () => {
-        while (queue.length > 0 && seen.size < 4096 && !cancelled) {
-          const current = queue.shift();
-          if (!current || seen.has(current)) continue;
-          seen.add(current);
-          const result = await runBrowseRef.current({
-            environmentId,
-            input: { partialPath: `${current}/` },
-          });
-          if (result._tag !== "Success") continue;
-          for (const entry of result.value.entries) {
-            if (!entry.fullPath || found.has(entry.fullPath)) continue;
-            found.add(entry.fullPath);
-            queue.push(entry.fullPath.replace(/\/+$/u, ""));
-          }
-          if (!cancelled) setDiscoveredDirectories([...found]);
-        }
-      };
-      await Promise.all(Array.from({ length: 8 }, loadWorker));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [canBrowse, environmentId, projectRoots, projectRootsKey]);
+    setLoadedDirectoryChildren([]);
+    setEmptyDirectories([]);
+    loadedDirectoryPathsRef.current.clear();
+    loadingDirectoryPathsRef.current.clear();
+    expandedDirectoryPathsRef.current.clear();
+  }, [environmentId, projectRoots]);
+  const loadDirectoryChildren = async (treePath: string) => {
+    if (!canBrowse || !treePath.endsWith("/")) return;
+    const directory = treePath.replace(/\/+$/u, "");
+    if (
+      loadedDirectoryPathsRef.current.has(directory) ||
+      loadingDirectoryPathsRef.current.has(directory)
+    ) {
+      return;
+    }
+    loadingDirectoryPathsRef.current.add(directory);
+    let result;
+    try {
+      result = await runBrowseRef.current({
+        environmentId,
+        input: { partialPath: `${directory}/` },
+      });
+    } catch {
+      return;
+    } finally {
+      loadingDirectoryPathsRef.current.delete(directory);
+    }
+    if (result._tag !== "Success") return;
+    loadedDirectoryPathsRef.current.add(directory);
+    const children = result.value.entries
+      .map((entry) => entry.fullPath?.replace(/\/+$/u, ""))
+      .filter((entry): entry is string => Boolean(entry));
+    if (children.length === 0) {
+      setEmptyDirectories((current) =>
+        current.includes(directory) ? current : [...current, directory],
+      );
+      return;
+    }
+    setLoadedDirectoryChildren((current) => [...new Set([...current, ...children])].sort());
+  };
   const toggle = (directory: string, checked: boolean) =>
     onChange(
       checked
@@ -114,20 +130,17 @@ export function PrivateWorkspaceDirectoryPicker({
   const treePathByModelPath = useMemo<Map<string, string>>(
     () => {
       const result = new Map<string, string>();
+      const emptyDirectorySet = new Set(emptyDirectories);
       const normalizedDirectories = directories.map((directory) => ({
         directory,
         modelPath: directory.replace(/^\/+|\/+$/gu, ""),
       }));
       for (const { directory, modelPath } of normalizedDirectories) {
-        const hasChildren = normalizedDirectories.some(
-          (candidate) =>
-            candidate.modelPath !== modelPath && candidate.modelPath.startsWith(`${modelPath}/`),
-        );
-        result.set(hasChildren ? `${modelPath}/` : modelPath, directory);
+        result.set(emptyDirectorySet.has(directory) ? modelPath : `${modelPath}/`, directory);
       }
       return result;
     },
-    [directories.join("\0")],
+    [directories.join("\0"), emptyDirectories.join("\0")],
   );
   const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
@@ -165,16 +178,47 @@ export function PrivateWorkspaceDirectoryPicker({
   });
   treeModelRef.current = model;
   useEffect(() => {
+    let queued = false;
+    let disposed = false;
+    const syncExpandedDirectories = () => {
+      queued = false;
+      if (disposed) return;
+      const expanded = expandedDirectoryPathsRef.current;
+      for (const treePath of treePaths) {
+        if (!treePath.endsWith("/")) continue;
+        const item = model.getItem(treePath);
+        if (!item?.isDirectory() || !("isExpanded" in item)) continue;
+        if (item.isExpanded()) {
+          expanded.add(treePath);
+          void loadDirectoryChildren(treePath);
+        } else if (expanded.has(treePath)) {
+          for (const expandedPath of expanded) {
+            if (expandedPath === treePath || expandedPath.startsWith(treePath)) {
+              expanded.delete(expandedPath);
+            }
+          }
+        }
+      }
+    };
+    const unsubscribe = model.subscribe(() => {
+      if (queued) return;
+      queued = true;
+      queueMicrotask(syncExpandedDirectories);
+    });
+    syncExpandedDirectories();
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [model, treePaths]);
+  useEffect(() => {
     if (previousTreePaths.current === treePaths) return;
     const previousPaths = previousTreePaths.current;
     const initialExpandedPaths =
       previousPaths === null
-        ? treePaths
+        ? []
         : treePaths.filter((treePath) => {
-            if (!treePath.endsWith("/")) return false;
-            const item = model.getItem(treePath);
-            if (item?.isDirectory() && "isExpanded" in item) return item.isExpanded();
-            return !previousPaths.includes(treePath);
+            return treePath.endsWith("/") && expandedDirectoryPathsRef.current.has(treePath);
           });
     previousTreePaths.current = treePaths;
     model.resetPaths(treePaths, { initialExpandedPaths });
@@ -195,6 +239,7 @@ export function PrivateWorkspaceDirectoryPicker({
       <Input
         aria-label={gt("Browse owner directories")}
         value={path}
+        placeholder="~/"
         onChange={(event) => setPath(event.target.value)}
         disabled={disabled || !canBrowse}
       />
