@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Ubuntu's restricted user namespaces need an AppArmor grant for bubblewrap.
-# Install a root-owned copy executable only by the T3 service user, leaving the
-# system bubblewrap and namespace policy unchanged.
+# Install a root-owned setuid copy executable only by the T3 service user. The
+# setuid transition lets bubblewrap configure loopback in its isolated network
+# namespace when the host denies that operation to unprivileged user namespaces.
 set -euo pipefail
 if [[ ${EUID} != 0 || $# != 2 || ! $1 =~ ^[0-9]+$ || $1 == 0 ]]; then
   echo 'Usage: sudo bash scripts/operations/install-private-workspace-sandbox.sh <service-uid> <codex-binary>' >&2
@@ -15,8 +16,8 @@ sandbox_directory="/usr/local/lib/t3code-private-workspaces/$service_uid"
 profile_file="/etc/apparmor.d/t3code-private-workspaces-$service_uid"
 install -d -o root -g root -m 0755 /usr/local/lib/t3code-private-workspaces
 install -d -o root -g root -m 0700 "$sandbox_directory"
-install -o root -g root -m 0700 /usr/bin/bwrap "$sandbox_directory/bwrap"
-setfacl -m "u:$service_uid:rx" "$sandbox_directory" "$sandbox_directory/bwrap"
+install -o root -g root -m 4750 /usr/bin/bwrap "$sandbox_directory/bwrap"
+setfacl -m "u:$service_uid:rx,m::rx" "$sandbox_directory" "$sandbox_directory/bwrap"
 for binary_name in codex codex-code-mode-host codex-exec-server; do
   source_binary="$(dirname "$codex_source")/$binary_name"
   if [[ -f $source_binary ]]; then

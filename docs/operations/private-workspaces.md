@@ -28,9 +28,11 @@ sudo bash scripts/operations/install-private-workspace-sandbox.sh "$(id -u)" "$(
 
 The script copies the Codex runtime and bubblewrap into a root-owned directory, grants
 execution only to the specified service user, and loads an AppArmor namespace grant
-for that copy of bubblewrap. It does not change the system namespace policy or system
-bubblewrap. Add both environment assignments printed by the script to the T3 service
-and restart it. Re-run the installer when updating the installed Codex runtime.
+for that copy of bubblewrap. The bubblewrap copy uses its supported setuid mode so it
+can configure the isolated network namespace on Ubuntu hosts that deny that operation
+to unprivileged user namespaces. It does not change the system bubblewrap. Add both
+environment assignments printed by the script to the T3 service and restart it.
+Re-run the installer when updating the installed Codex runtime.
 
 An unsupported or unavailable sandbox must fail execution; never fall back to
 unrestricted tools to make a directory-limited chat work.
