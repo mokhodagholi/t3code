@@ -689,7 +689,11 @@ export const make = Effect.gen(function* () {
 
   const listPage: ProjectService["Service"]["listPage"] = Effect.fn("ProjectService.listPage")(
     function* ({ cursor, limit }) {
-      const rows = (yield* listRows).filter((project) => project.deletedAt === null);
+      // Apply the private-account directory restriction before pagination. Otherwise a hidden
+      // project can occupy a page slot (and still be returned by the MCP project listing).
+      const rows = (yield* filterWorkspaceProjects(yield* listRows)).filter(
+        (project) => project.deletedAt === null,
+      );
       const projects = yield* Effect.forEach(
         rows.slice(cursor, cursor + limit),
         (row) =>

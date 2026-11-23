@@ -181,10 +181,10 @@ function EnvironmentDirectoryPicker({
     if (disabled) return;
     row.focus({ preventScroll: true });
     const item = model.getItem(treePath);
-    const clickedArrow =
-      row.dataset.itemType === "folder" &&
-      elements.some((element) => element.dataset.itemSection === "icon");
-    if (clickedArrow && item?.isDirectory() && "toggle" in item) {
+    const clickedDecoration = elements.some(
+      (element) => element.dataset.itemSection === "decoration",
+    );
+    if (!clickedDecoration && item?.isDirectory() && "toggle" in item) {
       item.toggle();
     } else {
       const directory = treePathByModelPath.get(treePath);

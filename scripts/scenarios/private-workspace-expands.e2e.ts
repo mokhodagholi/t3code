@@ -52,10 +52,10 @@ test(
       });
     await expect.poll(selected).toBe(0);
     await browser.evaluate((path) => {
-      document
+      const row = document
         .querySelector('file-tree-container[aria-label="Owner directories"]')
-        ?.shadowRoot?.querySelector<HTMLElement>(`[data-item-path="${path}"]`)
-        ?.click();
+        ?.shadowRoot?.querySelector<HTMLElement>(`[data-item-path="${path}"]`);
+      row?.querySelector<HTMLElement>('[data-item-section="decoration"]')?.click();
       return null;
     }, path);
     await expect.poll(selected).toBe(1);

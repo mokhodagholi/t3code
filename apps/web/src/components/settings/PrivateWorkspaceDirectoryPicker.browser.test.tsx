@@ -40,6 +40,10 @@ async function clickArrow(row: Locator) {
   await expect.element(row).toBeVisible();
   await userEvent.click(row.element().querySelector<HTMLElement>('[data-item-section="icon"]')!);
 }
+async function clickRow(row: Locator) {
+  await expect.element(row).toBeVisible();
+  await userEvent.click(row.element().querySelector<HTMLElement>('[data-item-section="content"]')!);
+}
 const listing = (parentPath: string, names: string[]) => ({
   _tag: "Success",
   value: {
@@ -116,23 +120,24 @@ it("separates arrow expansion from row selection, including the arrow padding", 
   await clickArrow(screen.getByRole("treeitem", { name: "work", exact: true }));
   const root = screen.getByRole("treeitem", { name: "owner", exact: true });
   const reset = screen.getByRole("button", { name: "Reset", exact: true });
-  await userEvent.click(root);
+  await clickRow(root);
+  await expect.element(root).toHaveAttribute("aria-expanded", "true");
+  await expect.element(reset).toBeDisabled();
+  expect(state.browse).toHaveBeenCalledTimes(1);
+  const checkbox = root.element().querySelector<HTMLElement>('[data-item-section="decoration"]')!;
+  await userEvent.click(checkbox);
+  await expect.element(reset).toBeEnabled();
+  await clickRow(root);
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   await expect.element(reset).toBeEnabled();
-  expect(state.browse).not.toHaveBeenCalled();
-  await userEvent.click(root);
-  await expect.element(reset).toBeDisabled();
   const icon = root.element().querySelector<HTMLElement>('[data-item-section="icon"]')!;
   expect(getComputedStyle(icon).padding).toBe("2px");
-  // Click inside the extra padding, outside the SVG itself.
+  // Clicking the padded arrow area still only changes expansion.
   await userEvent.click(icon, { position: { x: 1, y: 1 } });
   const child = screen.getByRole("treeitem", { name: "child", exact: true });
   await expect.element(child).toBeVisible();
-  await expect.element(reset).toBeDisabled();
-  await userEvent.click(root);
-  await expect.element(root).toHaveAttribute("aria-expanded", "true");
   await expect.element(reset).toBeEnabled();
-  await clickArrow(root);
+  await clickRow(root);
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   await expect.element(reset).toBeEnabled();
 });

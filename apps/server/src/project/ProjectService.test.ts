@@ -41,6 +41,7 @@ import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 import * as T3ProjectFileLoader from "./T3ProjectFileLoader.ts";
+import { CurrentWorkspaceDirectories } from "../auth/PrivateWorkspaces.ts";
 
 const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
   normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot.replace(/\/$/, "")),
@@ -195,6 +196,32 @@ it.effect("resolves only the requested active project page in creation order", (
       });
     }).pipe(Effect.scoped, Effect.provide(layerTestFor(metadata)));
   }),
+);
+
+it.effect("filters private project pages before applying the cursor", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const service = yield* ProjectService.ProjectService;
+    const rows = Arr.makeBy(3, (index) => ({
+      project_id: `restricted:${index}`,
+      title: `Restricted ${index}`,
+      workspace_root: `/work/restricted-${index}`,
+      scripts_json: "[]",
+      created_at: `2026-10-01T00:00:0${index}.000Z`,
+      updated_at: `2026-10-01T00:00:0${index}.000Z`,
+      deleted_at: null,
+      auto_pull: 0,
+    }));
+    yield* sql`INSERT INTO projection_projects ${sql.insert(rows)}`;
+    const page = yield* service
+      .listPage({ cursor: 0, limit: 2 })
+      .pipe(Effect.provideService(CurrentWorkspaceDirectories, ["/work/restricted-1"]));
+    assert.deepEqual(
+      page.projects.map((project) => project.id),
+      ["restricted:1"],
+    );
+    assert.isNull(page.nextCursor);
+  }).pipe(Effect.scoped, Effect.provide(layerTest)),
 );
 
 const layerProjectServiceDependencies = Layer.mergeAll(

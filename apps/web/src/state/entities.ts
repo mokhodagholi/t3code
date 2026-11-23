@@ -30,7 +30,7 @@ import type {
   TurnItemId,
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
@@ -42,6 +42,8 @@ import {
 import { environmentThreadDetails, environmentThreadShells } from "./threads";
 import { waitForAtomValue } from "./waitForAtomValue";
 import { m } from "../i18n/messages";
+import { environmentSession } from "./session";
+import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
 const EMPTY_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
 const EMPTY_VISIBLE_TURN_ITEMS: ReadonlyArray<OrchestrationV2ProjectedTurnItem> = Object.freeze([]);
@@ -67,6 +69,38 @@ const EMPTY_THREAD_STATUS_ATOM = Atom.make<EnvironmentThreadStatus>("empty").pip
 const EMPTY_VISIBLE_TURN_ITEMS_ATOM = Atom.make(EMPTY_VISIBLE_TURN_ITEMS).pipe(
   Atom.withLabel("web-thread-visible-turn-items:empty"),
 );
+
+function isPathWithinAllowedDirectory(path: string, allowedDirectory: string): boolean {
+  const candidate = normalizeProjectPathForComparison(path);
+  const root = normalizeProjectPathForComparison(allowedDirectory);
+  if (candidate === root) return true;
+  if (root === "/") return candidate.startsWith("/");
+  const separator = root.includes("\\") ? "\\" : "/";
+  return candidate.startsWith(root.endsWith(separator) ? root : `${root}${separator}`);
+}
+
+function isProjectVisibleForSession(
+  project: Pick<EnvironmentProject, "workspaceRoot">,
+  session: { readonly allowedDirectories?: ReadonlyArray<string> } | null,
+): boolean {
+  // An omitted grant is the owner or a legacy unrestricted private account. An explicit empty
+  // grant deliberately hides every project until the owner shares one.
+  if (session?.allowedDirectories === undefined) return true;
+  return session.allowedDirectories.some((directory) =>
+    isPathWithinAllowedDirectory(project.workspaceRoot, directory),
+  );
+}
+
+const visibleProjectsAtom = Atom.make((get): ReadonlyArray<EnvironmentProject> => {
+  const projects = get(environmentProjects.projectsAtom);
+  return projects.filter((project) => {
+    const session = AsyncResult.getOrElse(
+      get(environmentSession.sessionStateAtom(project.environmentId)),
+      () => null,
+    );
+    return isProjectVisibleForSession(project, session);
+  });
+}).pipe(Atom.withLabel("web-visible-project-list"));
 const EMPTY_CHECKPOINT_SUMMARIES_ATOM = Atom.make<ReadonlyArray<ThreadCheckpointSummary>>(
   Object.freeze([]),
 ).pipe(Atom.withLabel("web-thread-checkpoint-summaries:empty"));
@@ -98,7 +132,7 @@ export function useEnvironmentThreadRefs(
 }
 
 export function useProjects(): ReadonlyArray<EnvironmentProject> {
-  return useAtomValue(environmentProjects.projectsAtom);
+  return useAtomValue(visibleProjectsAtom);
 }
 
 /** Providers are left out; read them with `useEnvironmentProviders()`. */
@@ -282,7 +316,13 @@ export function useThreadCheckpointSummaries(
 }
 
 export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {
-  return appAtomRegistry.get(environmentProjects.projectAtom(ref));
+  const project = appAtomRegistry.get(environmentProjects.projectAtom(ref));
+  if (project === null) return null;
+  const session = AsyncResult.getOrElse(
+    appAtomRegistry.get(environmentSession.sessionStateAtom(ref.environmentId)),
+    () => null,
+  );
+  return isProjectVisibleForSession(project, session) ? project : null;
 }
 
 export function subscribeProject(
@@ -293,7 +333,7 @@ export function subscribeProject(
 }
 
 export function readProjects(): ReadonlyArray<EnvironmentProject> {
-  return appAtomRegistry.get(environmentProjects.projectsAtom);
+  return appAtomRegistry.get(visibleProjectsAtom);
 }
 
 export function waitForProject(
