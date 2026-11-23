@@ -1,17 +1,20 @@
 import { AuthFilesystemReadScope, type EnvironmentId } from "@t3tools/contracts";
-import type { FileTree as PierreFileTree } from "@pierre/trees";
+import type { FileTree as PierreFileTree, FileTreeRowDecorationContext } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { T, useGT, useMessages } from "gt-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useProjects } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { useEnvironmentScope } from "../../state/session";
 import { useDebouncedValue } from "../../state/queries";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { useTheme } from "../../hooks/useTheme";
 import { T3_PIERRE_ICONS } from "../../pierre-icons";
 import { PIERRE_TREE_UNSAFE_CSS, pierreTreeStyle } from "../../pierre-tree-theme";
+import { subscribeOncePerTask } from "../files/fileTreeExpansion";
+import { buildFileTreePathUpdates } from "../files/fileTreePathReconciliation";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 
@@ -24,46 +27,41 @@ const PRIVATE_WORKSPACE_TREE_ICONS = {
   ),
 };
 
-export function PrivateWorkspaceDirectoryPicker({
-  environmentId,
-  value,
-  onChange,
-  disabled,
-}: {
+interface PrivateWorkspaceDirectoryPickerProps {
   readonly environmentId: EnvironmentId;
   readonly value: ReadonlyArray<string>;
   readonly onChange: (value: ReadonlyArray<string>) => void;
   readonly disabled: boolean;
-}) {
+}
+
+export function PrivateWorkspaceDirectoryPicker(props: PrivateWorkspaceDirectoryPickerProps) {
+  return <EnvironmentDirectoryPicker key={props.environmentId} {...props} />;
+}
+
+function EnvironmentDirectoryPicker({
+  environmentId,
+  value,
+  onChange,
+  disabled,
+}: PrivateWorkspaceDirectoryPickerProps) {
   const gt = useGT();
   const { resolvedTheme } = useTheme();
   const allProjects = useProjects();
-  const projects = useMemo(
-    () => allProjects.filter((project) => project.environmentId === environmentId),
-    [allProjects, environmentId],
-  );
+  const projects = allProjects.filter((project) => project.environmentId === environmentId);
   const canBrowse = useEnvironmentScope(environmentId, AuthFilesystemReadScope);
   const [path, setPath] = useState("");
   const [loadedDirectoryChildren, setLoadedDirectoryChildren] = useState<ReadonlyArray<string>>([]);
   const [emptyDirectories, setEmptyDirectories] = useState<ReadonlyArray<string>>([]);
-  const valueRef = useRef(value);
-  valueRef.current = value;
   const queryPath = useDebouncedValue(path, 200);
   const runBrowse = useAtomQueryRunner(filesystemEnvironment.browse, {
     reportFailure: false,
     reportDefect: false,
   });
-  const runBrowseRef = useRef(runBrowse);
-  runBrowseRef.current = runBrowse;
   const query = useEnvironmentQuery(
     canBrowse && queryPath.trim()
       ? filesystemEnvironment.browse({ environmentId, input: { partialPath: queryPath } })
       : null,
     useMessages(),
-  );
-  const projectRoots = useMemo(
-    () => [...new Set(projects.map((project) => project.workspaceRoot).filter(Boolean))],
-    [projects],
   );
   const directories = [
     ...new Set(
@@ -74,22 +72,38 @@ export function PrivateWorkspaceDirectoryPicker({
         ...(query.data?.entries.map((entry) => entry.fullPath) ?? []),
       ]
         .filter(Boolean)
-        .map((directory) => directory.replace(/\/+$/u, "")),
+        .map((directory) => directory.replace(/\/+$/u, "") || "/"),
     ),
   ].sort();
   const loadedDirectoryPathsRef = useRef(new Set<string>());
   const loadingDirectoryPathsRef = useRef(new Set<string>());
-  const expandedDirectoryPathsRef = useRef(new Set<string>());
+  const browseControllerRef = useRef<AbortController | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancel filesystem requests when this environment picker unmounts
   useEffect(() => {
-    setLoadedDirectoryChildren([]);
-    setEmptyDirectories([]);
-    loadedDirectoryPathsRef.current.clear();
-    loadingDirectoryPathsRef.current.clear();
-    expandedDirectoryPathsRef.current.clear();
-  }, [environmentId, projectRoots]);
-  const loadDirectoryChildren = async (treePath: string) => {
-    if (!canBrowse || !treePath.endsWith("/")) return;
-    const directory = treePath.replace(/\/+$/u, "");
+    const controller = new AbortController();
+    browseControllerRef.current = controller;
+    return () => controller.abort();
+  }, []);
+  const toggle = (directory: string, checked: boolean) =>
+    onChange(
+      checked
+        ? [...new Set([...value, directory])]
+        : value.filter((candidate) => candidate !== directory),
+    );
+  const treePathByModelPath = new Map<string, string>();
+  const emptyDirectorySet = new Set(emptyDirectories);
+  for (const directory of directories) {
+    const modelPath = directory.replace(/^\/+|\/+$/gu, "");
+    treePathByModelPath.set(
+      emptyDirectorySet.has(directory) ? modelPath : `${modelPath}/`,
+      directory,
+    );
+  }
+  const treePaths = [...treePathByModelPath.keys()];
+  const loadDirectoryChildren = useEffectEvent(async (treePath: string) => {
+    const directory = treePathByModelPath.get(treePath);
+    const signal = browseControllerRef.current?.signal;
+    if (!canBrowse || disabled || directory === undefined || signal?.aborted) return;
     if (
       loadedDirectoryPathsRef.current.has(directory) ||
       loadingDirectoryPathsRef.current.has(directory)
@@ -97,18 +111,12 @@ export function PrivateWorkspaceDirectoryPicker({
       return;
     }
     loadingDirectoryPathsRef.current.add(directory);
-    let result;
-    try {
-      result = await runBrowseRef.current({
-        environmentId,
-        input: { partialPath: `${directory}/` },
-      });
-    } catch {
-      return;
-    } finally {
-      loadingDirectoryPathsRef.current.delete(directory);
-    }
-    if (result._tag !== "Success") return;
+    const result = await runBrowse(
+      { environmentId, input: { partialPath: `${directory.replace(/\/+$/u, "")}/` } },
+      { signal },
+    ).catch(() => null);
+    loadingDirectoryPathsRef.current.delete(directory);
+    if (signal?.aborted || result === null || result._tag !== "Success") return;
     loadedDirectoryPathsRef.current.add(directory);
     const children = result.value.entries
       .map((entry) => entry.fullPath?.replace(/\/+$/u, ""))
@@ -120,110 +128,83 @@ export function PrivateWorkspaceDirectoryPicker({
       return;
     }
     setLoadedDirectoryChildren((current) => [...new Set([...current, ...children])].sort());
-  };
-  const toggle = (directory: string, checked: boolean) =>
-    onChange(
-      checked
-        ? [...new Set([...valueRef.current, directory])]
-        : valueRef.current.filter((candidate) => candidate !== directory),
-    );
-  const treePathByModelPath = useMemo<Map<string, string>>(
-    () => {
-      const result = new Map<string, string>();
-      const emptyDirectorySet = new Set(emptyDirectories);
-      const normalizedDirectories = directories.map((directory) => ({
-        directory,
-        modelPath: directory.replace(/^\/+|\/+$/gu, ""),
-      }));
-      for (const { directory, modelPath } of normalizedDirectories) {
-        result.set(emptyDirectorySet.has(directory) ? modelPath : `${modelPath}/`, directory);
-      }
-      return result;
-    },
-    [directories.join("\0"), emptyDirectories.join("\0")],
-  );
-  const treePaths = useMemo(() => [...treePathByModelPath.keys()], [treePathByModelPath]);
+  });
   const previousTreePaths = useRef<ReadonlyArray<string> | null>(null);
   const treeModelRef = useRef<PierreFileTree | null>(null);
+  const onSelectionChange = useStableCallback((selectedPaths: readonly string[]) => {
+    const selected = selectedPaths.at(-1);
+    const directory = selected === undefined ? undefined : treePathByModelPath.get(selected);
+    if (!disabled && directory !== undefined) toggle(directory, !value.includes(directory));
+    if (selected !== undefined) {
+      queueMicrotask(() => treeModelRef.current?.getItem(selected)?.deselect());
+    }
+  });
+  const renderRowDecoration = useStableCallback(({ row }: FileTreeRowDecorationContext) => {
+    const directory = treePathByModelPath.get(row.path);
+    if (directory === undefined) return null;
+    return {
+      icon: value.includes(directory)
+        ? "t3-private-directory-checked"
+        : "t3-private-directory-unchecked",
+      title: value.includes(directory) ? gt("Allowed") : gt("Not allowed"),
+    };
+  });
   const { model } = useFileTree({
     density: "compact",
+    flattenEmptyDirectories: false,
     icons: PRIVATE_WORKSPACE_TREE_ICONS,
-    // Populate the first tree open, then let resetPaths preserve explicit collapses.
-    // With an "open" base option, Pierre treats an empty initialExpandedPaths list as "open".
     initialExpansion: "closed",
-    onSelectionChange: (selectedPaths) => {
-      const selected = selectedPaths.at(-1);
-      const directory =
-        selected === undefined
-          ? undefined
-          : treePathByModelPath.get(selected);
-      if (directory !== undefined) toggle(directory, !valueRef.current.includes(directory));
-      if (selected !== undefined) {
-        queueMicrotask(() => treeModelRef.current?.getItem(selected)?.deselect());
-      }
-    },
+    onSelectionChange,
     paths: [],
-    renderRowDecoration: ({ row }) => {
-      const directory = treePathByModelPath.get(row.path);
-      if (directory === undefined) return null;
-      return {
-        icon: valueRef.current.includes(directory)
-          ? "t3-private-directory-checked"
-          : "t3-private-directory-unchecked",
-        title: valueRef.current.includes(directory) ? gt("Allowed") : gt("Not allowed"),
-      };
-    },
+    renderRowDecoration,
     search: false,
     unsafeCSS: PIERRE_TREE_UNSAFE_CSS,
   });
-  treeModelRef.current = model;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expose the imperative tree to the selection callback after mounting
   useEffect(() => {
-    let queued = false;
-    let disposed = false;
-    const syncExpandedDirectories = () => {
-      queued = false;
-      if (disposed) return;
-      const expanded = expandedDirectoryPathsRef.current;
+    treeModelRef.current = model;
+    return () => {
+      treeModelRef.current = null;
+    };
+  }, [model]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- load immediate children when Pierre reports a newly expanded folder
+  useEffect(() => {
+    const expanded = new Set<string>();
+    const loadExpanded = () => {
       for (const treePath of treePaths) {
         if (!treePath.endsWith("/")) continue;
         const item = model.getItem(treePath);
         if (!item?.isDirectory() || !("isExpanded" in item)) continue;
         if (item.isExpanded()) {
-          expanded.add(treePath);
-          void loadDirectoryChildren(treePath);
-        } else if (expanded.has(treePath)) {
-          for (const expandedPath of expanded) {
-            if (expandedPath === treePath || expandedPath.startsWith(treePath)) {
-              expanded.delete(expandedPath);
-            }
+          if (!expanded.has(treePath)) {
+            expanded.add(treePath);
+            void loadDirectoryChildren(treePath);
           }
+        } else {
+          expanded.delete(treePath);
         }
       }
     };
-    const unsubscribe = model.subscribe(() => {
-      if (queued) return;
-      queued = true;
-      queueMicrotask(syncExpandedDirectories);
-    });
-    syncExpandedDirectories();
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
+    loadExpanded();
+    return subscribeOncePerTask(model, loadExpanded);
   }, [model, treePaths]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- update Pierre paths in place so lazy results retain the user's expansion state
   useEffect(() => {
     if (previousTreePaths.current === treePaths) return;
     const previousPaths = previousTreePaths.current;
-    const initialExpandedPaths =
-      previousPaths === null
-        ? []
-        : treePaths.filter((treePath) => {
-            return treePath.endsWith("/") && expandedDirectoryPathsRef.current.has(treePath);
-          });
     previousTreePaths.current = treePaths;
-    model.resetPaths(treePaths, { initialExpandedPaths });
+    if (previousPaths === null) {
+      model.resetPaths(treePaths);
+    } else {
+      const updates = buildFileTreePathUpdates(previousPaths, treePaths);
+      if (updates.length > 0) model.batch(updates);
+    }
   }, [model, treePaths]);
+  const decoratedValueRef = useRef(value);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refresh Pierre row decorations after allowed directories change
   useEffect(() => {
+    if (decoratedValueRef.current === value) return;
+    decoratedValueRef.current = value;
     model.setComposition(model.getComposition());
   }, [model, value]);
   const selectAll = () => onChange(directories.slice(0, 32));
