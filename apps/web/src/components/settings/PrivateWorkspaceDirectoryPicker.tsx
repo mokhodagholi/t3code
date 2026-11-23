@@ -1,6 +1,6 @@
 import { AuthFilesystemReadScope, type EnvironmentId } from "@t3tools/contracts";
 import type { FileTree as PierreFileTree, FileTreeRowDecorationContext } from "@pierre/trees";
-import { FileTree, useFileTree } from "@pierre/trees/react";
+import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { T, useGT, useMessages } from "gt-react";
 import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "react";
 import { useProjects } from "../../state/entities";
@@ -159,6 +159,7 @@ function EnvironmentDirectoryPicker({
   });
   const { model } = useFileTree({
     density: "compact",
+    fileTreeSearchMode: "hide-non-matches",
     flattenEmptyDirectories: false,
     icons: PRIVATE_WORKSPACE_TREE_ICONS,
     initialExpansion: "closed",
@@ -168,6 +169,7 @@ function EnvironmentDirectoryPicker({
     search: false,
     unsafeCSS: PRIVATE_WORKSPACE_TREE_CSS,
   });
+  const search = useFileTreeSearch(model);
   const handleTreeClick = (event: MouseEvent<HTMLElement>) => {
     // Pierre's rows live in an open shadow root, so event.target is the host.
     const elements = event.nativeEvent
@@ -276,6 +278,24 @@ function EnvironmentDirectoryPicker({
         ) : null}
       </div>
       <Input
+        type="search"
+        aria-label={gt("Filter owner directories")}
+        value={search.value}
+        placeholder={gt("Filter directories")}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          if (nextValue.trim()) search.setValue(nextValue);
+          else search.close();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            search.close();
+            event.currentTarget.blur();
+          }
+        }}
+        disabled={disabled || directories.length === 0}
+      />
+      <Input
         aria-label={gt("Browse owner directories")}
         value={path}
         placeholder="~/"
@@ -322,6 +342,11 @@ function EnvironmentDirectoryPicker({
           style={pierreTreeStyle(resolvedTheme)}
         />
       </div>
+      {search.value.trim() && search.matchingPaths.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          <T>No matching directories.</T>
+        </p>
+      ) : null}
       {value.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           <T>Select at least one directory for this private account.</T>

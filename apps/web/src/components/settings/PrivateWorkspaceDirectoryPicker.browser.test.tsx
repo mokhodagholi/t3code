@@ -146,3 +146,32 @@ it("separates arrow expansion from row selection, including the arrow padding", 
   await expect.element(root).toHaveAttribute("aria-expanded", "false");
   await expect.element(reset).toBeDisabled();
 });
+
+it("filters the tree without breaking directory toggles", async () => {
+  setup();
+  await using screen = await render(<Picker />);
+  await clickArrow(screen.getByRole("treeitem", { name: "work", exact: true }));
+  const root = screen.getByRole("treeitem", { name: "owner", exact: true });
+  await clickArrow(root);
+  const filter = screen.getByRole("searchbox", { name: "Filter owner directories", exact: true });
+  await userEvent.fill(filter, "child");
+  const child = screen.getByRole("treeitem", { name: "child", exact: true });
+  await expect.element(child).toBeVisible();
+  await expect
+    .element(screen.getByRole("treeitem", { name: "sibling", exact: true }))
+    .not.toBeInTheDocument();
+  await userEvent.click(
+    child.element().querySelector<HTMLElement>('[data-item-section="decoration"]')!,
+  );
+  await expect.element(screen.getByText("/work/owner/child", { exact: true })).toBeVisible();
+  await userEvent.fill(filter, "");
+  await expect
+    .element(screen.getByRole("treeitem", { name: "sibling", exact: true }))
+    .toBeVisible();
+  await userEvent.click(
+    child.element().querySelector<HTMLElement>('[data-item-section="decoration"]')!,
+  );
+  await expect
+    .element(screen.getByText("/work/owner/child", { exact: true }))
+    .not.toBeInTheDocument();
+});
