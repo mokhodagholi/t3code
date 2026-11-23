@@ -1825,7 +1825,7 @@ export const layerAppServerClientFactory: Layer.Layer<
         const privateBinary = input.environment.T3CODE_PRIVATE_WORKSPACE_CODEX_BIN;
         const environment = {
           ...codexAppServerEnvironment(input.environment),
-          ...(restricted && sandboxDirectory
+          ...(sandboxDirectory
             ? {
                 PATH: `${sandboxDirectory}:${input.environment.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`,
               }
